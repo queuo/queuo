@@ -36,7 +36,7 @@ export default function TableFreePage() {
                 Finish
               </Link>
               <Link
-                href="/admin/all-full-enter-email"
+                href="/admin/all-full"
                 className="rounded-lg border border-zinc-300 bg-white px-7 py-4 text-center text-base font-semibold text-black transition hover:border-zinc-500"
               >
                 Preview Full Capacity
