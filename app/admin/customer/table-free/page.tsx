@@ -1,57 +1,45 @@
-"use client";
-
-import { useState } from "react";
 import Link from "next/link";
 
-export default function ConfirmReservationPage() {
-  const [email, setEmail] = useState("");
-
+export default function TableFreePage() {
   return (
     <main className="min-h-screen bg-zinc-50 font-sans antialiased text-black">
       <div className="mx-auto w-full max-w-7xl px-6 py-10 md:px-10">
         <header className="mb-12 flex items-center justify-between">
           <p className="text-2xl font-semibold tracking-tight">Restaurant X</p>
-          <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">Reservation</p>
+          <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">Seating Ready</p>
         </header>
 
         <section className="grid items-center gap-10 lg:grid-cols-2">
           <div>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Step 2</p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Available Table</p>
             <h1 className="text-balance text-5xl font-semibold tracking-tight md:text-7xl">
-              Confirm your
+              Table 7 is
               <br />
-              reservation
+              ready for you
             </h1>
             <p className="mt-5 max-w-xl text-lg text-zinc-500 md:text-2xl">
-              Enter the email used for your booking.
+              Please proceed to your table. A team member will be with you shortly.
             </p>
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl">
-            <label htmlFor="email" className="block text-sm font-medium text-zinc-700">
-              Email Address
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="guest@email.com"
-              className="mt-1.5 w-full rounded-lg border border-zinc-300 px-3.5 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none transition focus:ring-2 focus:ring-black"
-            />
+            <div className="rounded-xl bg-zinc-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Assigned Table</p>
+              <p className="mt-2 text-4xl font-semibold tracking-tight">Table 7</p>
+              <p className="mt-2 text-base text-zinc-500">Left side near the window.</p>
+            </div>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/admin/table-free"
+                href="/admin/customer/welcome-page"
                 className="rounded-lg bg-black px-7 py-4 text-center text-base font-semibold text-white transition hover:bg-zinc-800"
               >
-                Confirm
+                Finish
               </Link>
               <Link
-                href="/admin/welcome-page"
+                href="/admin/customer/all-full"
                 className="rounded-lg border border-zinc-300 bg-white px-7 py-4 text-center text-base font-semibold text-black transition hover:border-zinc-500"
               >
-                Back
+                Preview Full Capacity
               </Link>
             </div>
           </div>

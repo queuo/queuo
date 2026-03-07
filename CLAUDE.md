@@ -69,10 +69,11 @@ Camera detects party of N approaching
   - [app/admin/](app/admin/) — Kiosk-facing guest-interaction interface and admin routes (protected by `proxy.ts`):
     - [app/admin/layout.tsx](app/admin/layout.tsx) — Admin layout wrapper
     - [app/admin/page.tsx](app/admin/page.tsx) — Admin home/dashboard
-    - [app/admin/welcome-page/page.tsx](app/admin/welcome-page/page.tsx) — Kiosk greeting screen; displays party size detected by YOLO and asks about reservation
-    - [app/admin/confirm-reservation/page.tsx](app/admin/confirm-reservation/page.tsx) — Displays confirmed reservation details and assigned table
-    - [app/admin/table-free/page.tsx](app/admin/table-free/page.tsx) — Displays available table and seating instructions for walk-in guests
-    - [app/admin/all-full/page.tsx](app/admin/all-full/page.tsx) — Prompted when all tables are full; guest enters email to join waitlist
+    - [app/admin/customer/](app/admin/customer/) — Kiosk-facing guest flow:
+      - [app/admin/customer/welcome-page/page.tsx](app/admin/customer/welcome-page/page.tsx) — Kiosk greeting screen; displays party size detected by YOLO and asks about reservation
+      - [app/admin/customer/confirm-reservation/page.tsx](app/admin/customer/confirm-reservation/page.tsx) — Displays confirmed reservation details and assigned table
+      - [app/admin/customer/table-free/page.tsx](app/admin/customer/table-free/page.tsx) — Displays available table and seating instructions for walk-in guests
+      - [app/admin/customer/all-full/page.tsx](app/admin/customer/all-full/page.tsx) — Prompted when all tables are full; guest enters email to join waitlist
     - [app/admin/test-route/page.tsx](app/admin/test-route/page.tsx) — Test/debug route
 - **[lib/](lib/)** — Shared service clients:
   - [lib/supabase.ts](lib/supabase.ts) — Server-side Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); bypasses RLS; use in API routes and server actions only

@@ -22,13 +22,13 @@ export default function WelcomePage() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/admin/confirm-reservation"
+                href="/admin/customer/confirm-reservation"
                 className="rounded-lg bg-black px-7 py-4 text-center text-base font-semibold text-white transition hover:bg-zinc-800"
               >
                 Yes, I do
               </Link>
               <Link
-                href="/admin/table-free"
+                href="/admin/customer/table-free"
                 className="rounded-lg border border-zinc-300 bg-white px-7 py-4 text-center text-base font-semibold text-black transition hover:border-zinc-500"
               >
                 No reservation
