@@ -18,6 +18,10 @@ npm run test:resend    # Test Resend email connection (requires .env)
 
 Tests use `npx tsx --env-file=.env` — ensure a `.env` file exists with the required variables before running them.
 
+## Branding
+
+The product brand name is currently **PlaceholderName** across the UI (`app/page.tsx`, `app/layout.tsx`). Update all instances when a final name is decided.
+
 ## Project: Reception Bot (Primary — Hack-Attack 2026)
 
 A computer-vision-powered reception system for restaurants. An iPhone camera + YOLO detects arriving guests and their party size. A kiosk screen then guides them through seating via simple button taps — no human host needed. Built for Hack-Attack 2026 "Bettering Businesses" theme.
