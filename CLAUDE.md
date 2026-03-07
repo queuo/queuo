@@ -65,9 +65,18 @@ Camera detects party of N approaching
 - Sequential message flow with automatic transitions
 - Responsive design for kiosk displays
 - Yes/No buttons appear after final message
+- **Text-to-speech (TTS)** — All welcome messages are read aloud via Web Speech API as guests interact with the kiosk
 
 ### Additional Kiosk Option
 - **[Call a staff member]** button → triggers a notification on the staff dashboard
+
+### Text-to-Speech (TTS)
+The welcome page automatically reads all messages aloud using the Web Speech API. This improves accessibility and provides audio guidance for guests:
+- Greeting message speaks when text animation completes
+- Party size announcement speaks after greeting
+- Reservation prompt speaks after party size message
+
+The `useTextToSpeech` hook (in `lib/useTextToSpeech.ts`) is configured with a speaking rate of 1.5x to deliver messages faster.
 
 ## Architecture
 
@@ -95,6 +104,7 @@ Camera detects party of N approaching
   - [lib/supabase-browser.ts](lib/supabase-browser.ts) — Browser-side Supabase client (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`); uses `@supabase/ssr` `createBrowserClient`; stores session in cookies for proxy access
   - [lib/resend.ts](lib/resend.ts) — Resend client (`RESEND_API_KEY`); sends waitlist-ready and reservation confirmation emails
   - [lib/utils.ts](lib/utils.ts) — `cn` helper for Tailwind class merging
+  - [lib/useTextToSpeech.ts](lib/useTextToSpeech.ts) — Custom React hook for text-to-speech using Web Speech API; provides `speak()`, `stop()`, and `isSpeaking()` functions with configurable rate, pitch, volume, and language
 - **[proxy.ts](proxy.ts)** — Next.js 16 proxy (replaces `middleware.ts`); protects all `/admin/*` routes; redirects unauthenticated users to `/login`
 - **[tests/](tests/)** — Connectivity tests for Supabase and Resend
 - **[vision/](vision/)** — Python vision microservice (see full breakdown below)
