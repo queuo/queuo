@@ -95,7 +95,12 @@ The `useTextToSpeech` hook (in `lib/useTextToSpeech.ts`) is configured with a sp
       - [app/admin/customer/all-full/page.tsx](app/admin/customer/all-full/page.tsx) — Prompted when all tables are full; guest enters email to join waitlist
     - [app/admin/entry/page.tsx](app/admin/entry/page.tsx) — Post-login landing page; animated typing sequence ("Welcome, Restaurant X." → "How would you like to proceed?") followed by two buttons: **Customer View** → `/admin/customer/welcome-page` and **Business View** → `/admin/business/dashboard`
     - [app/admin/business/](app/admin/business/) — Staff-facing business management:
-      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Camera monitoring dashboard; zone filter tabs (All / Entrance), live camera grid tiles with YOLO people-count overlay and status badges, YOLO vision polling every 900ms via `POST /detect`. Clicking a tile navigates to the camera detail page.
+      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Camera monitoring dashboard. Two camera types coexist:
+        - **Browser camera (CAM-01)**: auto-starts via `getUserMedia` on page load; polls `POST /detect` every 900ms for people count; clicking the tile navigates to the zone editor.
+        - **Vision server cameras**: added manually via "Add Camera" button → modal (name, zone, free-text, source index; `0` = iPhone via Continuity Camera). Each camera POSTs to `POST /cameras` on the vision server, then streams MJPEG from `GET /stream/{camera_id}`. People count polled from `GET /cameras/{camera_id}` every 1.5s. Remove button (×) calls `DELETE /cameras/{camera_id}`.
+        - **Zone tabs**: dynamically derived from all camera zones. Non-"Entrance" zones show pencil (inline rename) and trash (delete zone + its cameras) icons on hover. Rename updates all cameras in that zone; delete stops them on the server.
+        - **Persistence**: vision server camera configs (`name`, `zone`, `source`) saved to `localStorage` key `vision-cameras`; re-registered with the vision server on page mount.
+        - **Vision health**: pings `GET /health` every 5s for the "Vision Connected / Offline" badge.
       - [app/admin/business/camera/[cameraId]/page.tsx](app/admin/business/camera/[cameraId]/page.tsx) — Full-screen camera viewer + table zone editor. Left: live video feed with canvas overlay for drawing zones (click & drag). Right sidebar: zone list with editable name and seat capacity per zone, confirm/cancel flow for new zones. Zones persisted to `localStorage` keyed by `camera-zones-${cameraId}`. "Save to Database" upserts name + capacity to Supabase `tables` via `POST /api/tables`.
 - **[app/api/](app/api/)** — Next.js API routes:
   - [app/api/tables/route.ts](app/api/tables/route.ts) — `POST /api/tables`; accepts an array of `{ name, capacity, status }` rows and upserts them into the `tables` table using the server-side secret key (bypasses RLS). Used by the camera zone editor.
@@ -134,14 +139,19 @@ A self-contained Python package for real-time person detection, tracking, and ta
 
 ### Two modes
 
-1. **FastAPI server (`vision/server.py`)** — HTTP endpoint consumed by the Next.js kiosk frontend. Start with:
+1. **FastAPI server (`vision/server.py`)** — HTTP endpoint consumed by the Next.js kiosk and business dashboard. Start with:
    ```bash
    uvicorn vision.server:app --port 8000 --reload
    ```
    - `POST /detect` — accepts `{ image: "<base64 JPEG>" }`, returns `{ count: int, annotated_frame: "<base64 JPEG>" }`
    - `GET /health` — returns `{ status: "ok" }`
-   - CORS open to all origins (kiosk browser calls it directly)
-   - Model: `yolov8n.pt` loaded from `vision/models/`
+   - `POST /cameras` — starts a background MJPEG capture thread for a given source index; accepts `{ source: int, name: str, zone: str }`; returns `{ camera_id, source, name, zone, people_count }`
+   - `GET /cameras` — list all active camera streams
+   - `GET /cameras/{camera_id}` — get camera info + live `people_count`
+   - `DELETE /cameras/{camera_id}` — stop a camera (sets `running=False`; thread releases `VideoCapture` itself to avoid macOS AVFoundation crash)
+   - `GET /stream/{camera_id}` — MJPEG stream (`multipart/x-mixed-replace`); browser displays in `<img>` tag; YOLO bounding boxes drawn on each frame
+   - Camera source `0` = iPhone via Continuity Camera on macOS
+   - CORS open to all origins; model: `yolov8n.pt` loaded from `vision/models/`
 
 2. **Standalone CLI pipeline (`vision/main.py`)** — Offline processing / demo mode. Run from repo root:
    ```bash
@@ -163,7 +173,7 @@ Dependencies: `ultralytics`, `opencv-python`, `numpy`, `PyYAML`, `lapx`, `fastap
 ### Module structure
 | Path | Purpose |
 |---|---|
-| `vision/server.py` | FastAPI `/detect` endpoint |
+| `vision/server.py` | FastAPI server: `/detect`, `/health`, `/cameras`, `/stream/{id}` |
 | `vision/main.py` | CLI pipeline entrypoint |
 | `vision/config/sample_restaurant.yaml` | Default table layout, zones, and tuning thresholds |
 | `vision/models/yolov8n.pt` | Bundled YOLO model |
