@@ -154,3 +154,13 @@ python vision/tools/table_config_ui.py \
   --output vision/config/my_restaurant.yaml \
   --source /path/to/video.mp4
 ```
+
+
+
+
+Run live feed:
+vision/.venv/bin/python vision/main.py --config vision/config/sample_restaurant.yaml --source 0
+
+
+Run with test footage from /test_footage
+vision/.venv/bin/python vision/main.py --config vision/config/sample_restaurant.yaml --source test_footage/footage.mp4
