@@ -1,0 +1,1 @@
+"""Restaurant vision pipeline package."""
