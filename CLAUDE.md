@@ -85,6 +85,11 @@ Camera detects party of N approaching
       - [app/admin/customer/table-free/page.tsx](app/admin/customer/table-free/page.tsx) — Displays available table and seating instructions for walk-in guests
       - [app/admin/customer/all-full/page.tsx](app/admin/customer/all-full/page.tsx) — Prompted when all tables are full; guest enters email to join waitlist
     - [app/admin/entry/page.tsx](app/admin/entry/page.tsx) — Post-login landing page; animated typing sequence ("Welcome, Restaurant X." → "How would you like to proceed?") followed by two buttons: **Customer View** → `/admin/customer/welcome-page` and **Business View** → `/admin/business/dashboard`
+    - [app/admin/business/](app/admin/business/) — Staff-facing business management:
+      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Camera monitoring dashboard; zone filter tabs (All / Entrance), live camera grid tiles with YOLO people-count overlay and status badges, YOLO vision polling every 900ms via `POST /detect`. Clicking a tile navigates to the camera detail page.
+      - [app/admin/business/camera/[cameraId]/page.tsx](app/admin/business/camera/[cameraId]/page.tsx) — Full-screen camera viewer + table zone editor. Left: live video feed with canvas overlay for drawing zones (click & drag). Right sidebar: zone list with editable name and seat capacity per zone, confirm/cancel flow for new zones. Zones persisted to `localStorage` keyed by `camera-zones-${cameraId}`. "Save to Database" upserts name + capacity to Supabase `tables` via `POST /api/tables`.
+- **[app/api/](app/api/)** — Next.js API routes:
+  - [app/api/tables/route.ts](app/api/tables/route.ts) — `POST /api/tables`; accepts an array of `{ name, capacity, status }` rows and upserts them into the `tables` table using the server-side secret key (bypasses RLS). Used by the camera zone editor.
 - **[lib/](lib/)** — Shared service clients:
   - [lib/supabase.ts](lib/supabase.ts) — Server-side Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); bypasses RLS; use in API routes and server actions only
   - [lib/supabase-browser.ts](lib/supabase-browser.ts) — Browser-side Supabase client (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`); uses `@supabase/ssr` `createBrowserClient`; stores session in cookies for proxy access
@@ -98,6 +103,18 @@ Camera detects party of N approaching
 - `tables` — staff-configured table zones: `id`, `name`, `capacity`, `status` (`free`/`occupied`/`reserved`), `seated_at` (timestamp for dwell tracking)
 - `reservations` — `id`, `guest_name`, `party_size`, `reserved_for` (timestamp), `table_id`, `status`
 - `waitlist` — `id`, `guest_name`, `party_size`, `email`, `joined_at`, `notified_at`
+
+#### Migration: create `tables`
+Run in Supabase SQL Editor to create the `tables` table (required for the zone editor save):
+```sql
+create table public.tables (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  capacity integer not null default 4,
+  status text not null default 'free' check (status in ('free', 'occupied', 'reserved')),
+  seated_at timestamptz
+);
+```
 
 ---
 
