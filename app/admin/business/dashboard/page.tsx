@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Camera, Plus, Users, Wifi, WifiOff, X } from "lucide-react";
+import { ArrowLeft, Camera, Check, Pencil, Plus, Trash2, Users, Wifi, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const VISION_SERVER =
@@ -376,6 +376,8 @@ export default function BusinessDashboardPage() {
   const [timestamp, setTimestamp] = useState(now());
   const [visionCameras, setVisionCameras] = useState<VisionCamera[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingZone, setEditingZone] = useState<string | null>(null);
+  const [editZoneValue, setEditZoneValue] = useState("");
 
   // Restore persisted cameras on mount
   useEffect(() => {
@@ -533,6 +535,27 @@ export default function BusinessDashboardPage() {
     });
   }
 
+  function handleRenameZone(oldZone: string, newZone: string) {
+    const trimmed = newZone.trim();
+    if (!trimmed || trimmed === oldZone) { setEditingZone(null); return; }
+    const updated = visionCameras.map((c) => c.zone === oldZone ? { ...c, zone: trimmed } : c);
+    setVisionCameras(updated);
+    persistCameras(updated);
+    if (activeZone === oldZone) setActiveZone(trimmed);
+    setEditingZone(null);
+  }
+
+  async function handleDeleteZone(zone: string) {
+    const toRemove = visionCameras.filter((c) => c.zone === zone);
+    await Promise.allSettled(
+      toRemove.map((c) => fetch(`${VISION_SERVER}/cameras/${c.id}`, { method: "DELETE" }).catch(() => {}))
+    );
+    const remaining = visionCameras.filter((c) => c.zone !== zone);
+    setVisionCameras(remaining);
+    persistCameras(remaining);
+    if (activeZone === zone) setActiveZone("All");
+  }
+
   const browserCameraData = useMemo(() =>
     CAMERA_PRESETS.map((cam, i) => ({
       ...cam,
@@ -620,20 +643,80 @@ export default function BusinessDashboardPage() {
 
         {/* Zone filter tabs */}
         <nav className="mt-6 flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
-          {allZones.map((zone) => (
-            <button
-              key={zone}
-              type="button"
-              onClick={() => setActiveZone(zone)}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeZone === zone
-                  ? "bg-black text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              {zone}
-            </button>
-          ))}
+          {allZones.map((zone) => {
+            if (zone === "All") {
+              return (
+                <button
+                  key="All"
+                  type="button"
+                  onClick={() => setActiveZone("All")}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    activeZone === "All" ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                  }`}
+                >
+                  All
+                </button>
+              );
+            }
+
+            if (editingZone === zone) {
+              return (
+                <div key={zone} className="flex items-center gap-1 rounded-xl border border-zinc-300 bg-zinc-50 px-2 py-1">
+                  <input
+                    autoFocus
+                    value={editZoneValue}
+                    onChange={(e) => setEditZoneValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameZone(zone, editZoneValue);
+                      if (e.key === "Escape") setEditingZone(null);
+                    }}
+                    className="w-24 bg-transparent text-sm font-semibold text-zinc-900 outline-none"
+                  />
+                  <button type="button" onClick={() => handleRenameZone(zone, editZoneValue)} className="text-emerald-600 hover:text-emerald-700">
+                    <Check className="size-3.5" />
+                  </button>
+                  <button type="button" onClick={() => setEditingZone(null)} className="text-zinc-400 hover:text-zinc-600">
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              );
+            }
+
+            const isStatic = zone === "Entrance";
+            return (
+              <div key={zone} className="group flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveZone(zone)}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    activeZone === zone ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                  }`}
+                >
+                  {zone}
+                </button>
+                {!isStatic && (
+                  <div className="hidden group-hover:flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => { setEditingZone(zone); setEditZoneValue(zone); }}
+                      className="rounded p-1 text-zinc-400 hover:text-zinc-700"
+                      title="Rename zone"
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteZone(zone)}
+                      className="rounded p-1 text-zinc-400 hover:text-red-500"
+                      title="Delete zone and its cameras"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           <div className="ml-auto flex items-center gap-2">
             <Button
