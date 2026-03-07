@@ -63,12 +63,18 @@ Camera detects party of N approaching
 ## Architecture
 
 - **[app/](app/)** — Next.js App Router. Contains:
-  - Staff dashboard: live floor map, table states, waitlist, dwell timers
+  - [app/page.tsx](app/page.tsx) — Public marketing/landing page
+  - [app/login/page.tsx](app/login/page.tsx) — Login page (Supabase email/password auth)
+  - [app/logout/page.tsx](app/logout/page.tsx) — Logout route; signs out and redirects to `/login`
+  - [app/admin/](app/admin/) — Protected admin routes (requires auth); guarded by `proxy.ts`
+  - Staff dashboard: live floor map, table states, waitlist, dwell timers (to be built under `/admin`)
   - Reception Bot UI: kiosk-facing guest-interaction interface
 - **[lib/](lib/)** — Shared service clients:
-  - [lib/supabase.ts](lib/supabase.ts) — Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); used for DB reads/writes, Realtime subscriptions
+  - [lib/supabase.ts](lib/supabase.ts) — Server-side Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); bypasses RLS; use in API routes and server actions only
+  - [lib/supabase-browser.ts](lib/supabase-browser.ts) — Browser-side Supabase client (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`); uses `@supabase/ssr` `createBrowserClient`; stores session in cookies for proxy access
   - [lib/resend.ts](lib/resend.ts) — Resend client (`RESEND_API_KEY`); sends waitlist-ready and reservation confirmation emails
   - [lib/utils.ts](lib/utils.ts) — `cn` helper for Tailwind class merging
+- **[proxy.ts](proxy.ts)** — Next.js 16 proxy (replaces `middleware.ts`); protects all `/admin/*` routes; redirects unauthenticated users to `/login`
 - **[tests/](tests/)** — Connectivity tests for Supabase and Resend
 
 ### Supabase Schema (expected)
@@ -119,13 +125,15 @@ cp env-example.txt .env
 
 `.env` structure:
 ```
-SUPABASE_URL=
-SUPABASE_SECRET_KEY=
+SUPABASE_URL=                   # Project URL (server-side)
+SUPABASE_SECRET_KEY=            # service_role secret key (server-side only, never expose)
+NEXT_PUBLIC_SUPABASE_URL=       # Same value as SUPABASE_URL (browser-safe)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=  # anon/public key (browser-safe)
 RESEND_API_KEY=
 ```
 
 **Getting credentials:**
-- **Supabase** — Create a project at [supabase.com](https://supabase.com). For `SUPABASE_URL`: click **Connect** in the top header → **API Keys** → copy the Project URL. For `SUPABASE_SECRET_KEY`: go to **Settings → API Keys** and copy the secret key.
+- **Supabase** — Create a project at [supabase.com](https://supabase.com). For `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL`: click **Connect** in the top header → **API Keys** → copy the Project URL. For `SUPABASE_SECRET_KEY`: **Settings → API Keys → service_role**. For `NEXT_PUBLIC_SUPABASE_ANON_KEY`: **Settings → API Keys → anon/public**.
 - **Resend** — Go to [resend.com](https://resend.com), navigate to API Keys → Create API Key. Copy the key as `RESEND_API_KEY`.
 
 ### 3. Verify connections
@@ -143,7 +151,16 @@ npm run dev
 
 - Next.js 16 with React 19 (App Router, TypeScript)
 - Tailwind CSS v4 + shadcn/ui (Radix UI + CVA + tailwind-merge)
-- Supabase (Postgres, Realtime WebSockets, Storage)
+- Supabase (Postgres, Realtime WebSockets, Storage, Auth)
+- `@supabase/ssr` — cookie-based session management for Next.js proxy auth
 - Resend (waitlist-ready + reservation confirmation emails)
 - Python + YOLO (Ultralytics) — vision microservice; detects party size at entrance and table occupancy
 - WebRTC — iPhone camera-to-Python video transport
+
+## Auth
+
+- Login: `POST /login` via `supabaseBrowser.auth.signInWithPassword`
+- Logout: visit `/logout` — signs out and redirects to `/login`
+- Protected routes: all `/admin/*` routes are guarded by `proxy.ts`; unauthenticated requests redirect to `/login`
+- Session storage: cookies (via `@supabase/ssr`) so the proxy can read auth state server-side
+- **Do not use `lib/supabase.ts` (secret key) for client-side auth** — only use `lib/supabase-browser.ts`
