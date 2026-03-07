@@ -48,14 +48,23 @@ A computer-vision-powered reception system for restaurants. An iPhone camera + Y
 
 ```
 Camera detects party of N approaching
-  └─ Kiosk: "Welcome! Party of N — do you have a reservation?"
-       ├─ [Yes] → confirm reservation → "Proceed to Table X"
-       └─ [No]  → check YOLO-tracked table availability
+  └─ Kiosk (Welcome Page - typing animation):
+       1. "Welcome to Restaurant X" (types out, 2s pause)
+       2. "We saw you have a party of N." (types out, 2s pause)
+       3. "Do you have a reservation?" (types out)
+       ├─ [Yes, I do] → confirm reservation → "Proceed to Table X"
+       └─ [No reservation] → check YOLO-tracked table availability
                   ├─ Table free (capacity ≥ N) → "Table X is ready for you"
                   └─ All full → show estimated wait time
                                 └─ Guest enters email → waitlist entry created
                                     └─ Table frees → Resend email → guest returns
 ```
+
+**Welcome Page Features:**
+- Conversational typing animation (character-by-character display)
+- Sequential message flow with automatic transitions
+- Responsive design for kiosk displays
+- Yes/No buttons appear after final message
 
 ### Additional Kiosk Option
 - **[Call a staff member]** button → triggers a notification on the staff dashboard
