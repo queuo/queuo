@@ -1,0 +1,69 @@
+video:
+  source: 0
+  display: true
+  default_fps: 30
+
+model:
+  # Bare '.pt' names are stored/loaded from vision/models automatically.
+  # Practical MVP default: fast and stable on laptop GPUs/CPUs.
+  name: yolov8n.pt
+  confidence: 0.35
+  iou: 0.5
+  image_size: 960
+  # device: "cpu"  # Optional: "cpu", "mps", "cuda:0"
+
+tracking:
+  tracker_config: bytetrack.yaml
+
+thresholds:
+  table_assignment_seconds: 1.8
+  reassignment_seconds: 2.2
+  vacancy_timeout_seconds: 2.8
+  min_frames_for_assignment: 8
+  recently_vacated_seconds: 6.0
+  track_stale_seconds: 1.8
+  max_track_age_seconds: 8.0
+
+visualization:
+  show_anchor_points: true
+  show_track_trails: true
+  trail_length: 30
+
+output:
+  json_snapshot_dir: vision/output/state_snapshots
+  json_snapshot_every_n_frames: 15
+  save_annotated_video: null
+
+# Define table polygons or rects in image coordinates.
+tables:
+  - table_id: T1
+    label: Window 2-top
+    capacity: 2
+    priority: 1
+    polygon: [[120, 140], [240, 140], [240, 260], [120, 260]]
+
+  - table_id: T2
+    label: Center 4-top
+    capacity: 4
+    priority: 2
+    polygon: [[280, 120], [460, 120], [460, 300], [280, 300]]
+
+  - table_id: T3
+    label: Patio Bench
+    capacity: 6
+    priority: 3
+    rect: [500, 140, 760, 330]
+
+# Special zones can also use polygon or rect.
+zones:
+  entrance_zone:
+    rect: [10, 120, 110, 340]
+
+  waiting_zone:
+    polygon: [[20, 360], [260, 360], [260, 520], [20, 520]]
+
+  exit_zone:
+    rect: [810, 120, 960, 360]
+
+  staff_only_zone:
+    polygon: [[640, 20], [980, 20], [980, 110], [640, 110]]
