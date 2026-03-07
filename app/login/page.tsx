@@ -37,6 +37,12 @@ export default function LoginPage() {
       {/* Left panel — form */}
       <div className="flex flex-1 flex-col items-center justify-center bg-white px-8 py-12">
         <div className="w-full max-w-sm">
+          <a
+            href="/"
+            className="mb-6 inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-black"
+          >
+            ← Back to home
+          </a>
           <h1 className="text-3xl font-semibold tracking-tight text-black">
             Sign in
           </h1>

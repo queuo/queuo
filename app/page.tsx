@@ -17,8 +17,8 @@ export default function Home() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="text-sm text-zinc-600">
-              Login
+            <Button variant="ghost" size="sm" className="text-sm text-zinc-600" asChild>
+              <a href="/login">Login</a>
             </Button>
             <Button
               size="sm"
