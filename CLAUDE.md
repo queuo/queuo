@@ -62,7 +62,12 @@ npm install
 
 ### 2. Configure environment variables
 
-Create a `.env` file in the project root:
+Copy `env-example.txt` to `.env` and fill in the values:
+```bash
+cp env-example.txt .env
+```
+
+`.env` structure:
 ```
 SUPABASE_URL=
 SUPABASE_SECRET_KEY=
