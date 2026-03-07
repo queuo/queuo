@@ -7,28 +7,28 @@ export default function ConfirmReservationPage() {
   const [email, setEmail] = useState("");
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-100 to-slate-200 text-slate-900">
+    <main className="min-h-screen bg-zinc-50 font-sans antialiased text-black">
       <div className="mx-auto w-full max-w-7xl px-6 py-10 md:px-10">
         <header className="mb-12 flex items-center justify-between">
           <p className="text-2xl font-semibold tracking-tight">Restaurant X</p>
-          <p className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white">Reservation</p>
+          <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">Reservation</p>
         </header>
 
         <section className="grid items-center gap-10 lg:grid-cols-2">
           <div>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Step 2</p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Step 2</p>
             <h1 className="text-balance text-5xl font-semibold tracking-tight md:text-7xl">
               Confirm your
               <br />
               reservation
             </h1>
-            <p className="mt-5 max-w-xl text-lg text-slate-600 md:text-2xl">
+            <p className="mt-5 max-w-xl text-lg text-zinc-500 md:text-2xl">
               Enter the email used for your booking.
             </p>
           </div>
 
-          <div className="rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur">
-            <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <label htmlFor="email" className="block text-sm font-medium text-zinc-700">
               Email Address
             </label>
             <input
@@ -38,18 +38,18 @@ export default function ConfirmReservationPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="guest@email.com"
-              className="mt-3 w-full rounded-2xl border border-slate-300 bg-white px-5 py-4 text-xl font-medium outline-none transition focus:border-slate-900"
+              className="mt-1.5 w-full rounded-lg border border-zinc-300 px-3.5 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none transition focus:ring-2 focus:ring-black"
             />
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/admin/table-free"
-                className="rounded-full bg-slate-900 px-7 py-4 text-center text-base font-semibold text-white transition hover:bg-slate-700"
+                className="rounded-lg bg-black px-7 py-4 text-center text-base font-semibold text-white transition hover:bg-zinc-800"
               >
                 Confirm
               </Link>
               <Link
                 href="/admin/welcome-page"
-                className="rounded-full border border-slate-300 bg-white px-7 py-4 text-center text-base font-semibold text-slate-900 transition hover:border-slate-500"
+                className="rounded-lg border border-zinc-300 bg-white px-7 py-4 text-center text-base font-semibold text-black transition hover:border-zinc-500"
               >
                 Back
               </Link>
