@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Button } from "@/components/ui/button";
 
@@ -112,16 +113,18 @@ export default function LoginPage() {
       <div className="hidden flex-col items-center justify-center bg-zinc-50 px-12 lg:flex lg:flex-1">
         <div className="w-full max-w-md text-center">
           {/* Logo */}
-          <div className="mb-6 flex items-center justify-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black">
-              <span className="text-sm font-bold text-white">+</span>
-            </div>
-            <span className="text-xl font-semibold tracking-tight text-black">
-              PlaceholderName
-            </span>
+          <div className="mb-2 flex items-center justify-center">
+            <Image
+              src="/queueo.png"
+              alt="Queueo"
+              width={360}
+              height={96}
+              className="h-48 w-auto"
+              priority
+            />
           </div>
 
-          <h2 className="text-2xl font-semibold tracking-tight text-black">
+          <h2 className="-mt-10 text-2xl font-semibold tracking-tight text-black">
             Smart guest reception
           </h2>
           <p className="mt-2 text-sm text-zinc-500">

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 type Stage = "greeting" | "buttons";
@@ -66,14 +67,22 @@ export default function AdminLanding() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-zinc-50 to-zinc-100 font-sans antialiased text-black">
+      {/* Header */}
+      <header className="flex items-center justify-between px-8 py-2">
+        <Image
+          src="/queueo.png"
+          alt="Queueo"
+          width={360}
+          height={96}
+          className="h-16 w-auto"
+          priority
+        />
+        <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
+          Admin Portal
+        </p>
+      </header>
+
       <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 md:px-10">
-        {/* Header */}
-        <header className="mb-20 flex items-center justify-between">
-          <p className="text-2xl font-semibold tracking-tight">Restaurant X</p>
-          <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
-            Admin Portal
-          </p>
-        </header>
 
         {/* Conversation Container */}
         <section className="flex flex-col items-center justify-center min-h-[500px]">

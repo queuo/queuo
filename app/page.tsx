@@ -14,7 +14,7 @@ export default function Home() {
             alt="Queueo Logo"
             height={80}
             width={80}
-            className="h-20 w-auto"
+            className="h-16 w-auto"
           />
 
           {/* Actions */}

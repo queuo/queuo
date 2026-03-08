@@ -195,21 +195,22 @@ export default function WelcomePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-zinc-50 to-zinc-100 font-sans antialiased text-black">
+      {/* Header */}
+      <header className="flex items-center justify-between px-8 py-2">
+        <Image
+          src="/queueo.png"
+          alt="Queueo"
+          width={360}
+          height={96}
+          className="h-16 w-auto"
+          priority
+        />
+        <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
+          Kiosk Check-in
+        </p>
+      </header>
+
       <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 md:px-10">
-        {/* Header */}
-        <header className="mb-20 flex items-center justify-between">
-          <Image
-            src="/queueo.png"
-            alt="Queueo"
-            width={240}
-            height={64}
-            className="h-14 w-auto"
-            priority
-          />
-          <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
-            Kiosk Check-in
-          </p>
-        </header>
 
         {/* Conversation Container */}
         <section className="mx-auto grid min-h-[560px] w-full max-w-2xl content-center gap-2 -translate-y-4">
