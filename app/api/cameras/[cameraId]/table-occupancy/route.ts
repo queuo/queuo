@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { resend } from "@/lib/resend";
+import { tableReadyHtml } from "@/lib/emails/table-ready";
 
 interface OccupancyUpdate {
   id: string;
@@ -98,6 +100,47 @@ export async function POST(
 
   if (refreshedErr) {
     return NextResponse.json({ error: refreshedErr.message }, { status: 500 });
+  }
+
+  // When a zone transitions to free, notify the next waitlist guest whose
+  // party size fits the newly freed table.
+  const freedZones = (zones ?? []).filter((z) => {
+    const wasOccupied = z.status === "occupied";
+    const nextOccupied = updateMap.get(z.id);
+    return wasOccupied && nextOccupied === false;
+  }) as ZoneRow[];
+
+  for (const freedZone of freedZones) {
+    const { data: nextGuest } = await supabase
+      .from("waitlist")
+      .select("id,email,party_size,guest_name")
+      .is("notified_at", null)
+      .lte("party_size", freedZone.capacity)
+      .order("joined_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    if (nextGuest) {
+      await supabase
+        .from("waitlist")
+        .update({ notified_at: new Date().toISOString() })
+        .eq("id", nextGuest.id);
+
+      const { error: emailErr } = await resend.emails.send({
+        from: "Queueo <onboarding@resend.dev>",
+        to: nextGuest.email,
+        subject: `Your table is ready — ${freedZone.name}`,
+        html: tableReadyHtml({
+          email: nextGuest.email,
+          partySize: nextGuest.party_size,
+          tableName: freedZone.name,
+        }),
+      });
+
+      if (emailErr) {
+        console.error("Resend error (table-ready):", emailErr);
+      }
+    }
   }
 
   return NextResponse.json({ zones: (refreshed ?? []) as ZoneRow[] });

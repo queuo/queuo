@@ -299,12 +299,30 @@ export default function WelcomePage() {
 
         case "confirm_email":
           if (intent === "email_confirmed") {
-            // Show waitlist confirmation, then reset for next guest
-            addAIMessage(reply);
-            setUIState("speaking");
-            speak(reply, () => {
-              setTimeout(() => resetAndGreet(), 10000);
-            });
+            // Submit to waitlist API, then speak personalised confirmation
+            void (async () => {
+              let waitMsg = reply;
+              try {
+                const res = await fetch("/api/waitlist", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ email: collectedEmail, partySize }),
+                });
+                if (res.ok) {
+                  const data = await res.json() as { estimatedWait?: number; position?: number };
+                  if (data.estimatedWait) {
+                    waitMsg = `You're on the list! We've sent a confirmation to ${collectedEmail}. Your estimated wait is around ${data.estimatedWait} minutes. We'll email you the moment a table is ready.`;
+                  }
+                }
+              } catch {
+                // non-critical — proceed with Gemini's default reply
+              }
+              addAIMessage(waitMsg);
+              setUIState("speaking");
+              speak(waitMsg, () => {
+                setTimeout(() => resetAndGreet(), 10000);
+              });
+            })();
           } else if (intent === "email_denied") {
             setKioskState("collect_email");
             setCollectedEmail("");
