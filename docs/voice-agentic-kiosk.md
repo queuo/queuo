@@ -302,6 +302,39 @@ This runs inline as an async IIFE inside the `handleGeminiResponse` callback whe
 
 ---
 
+## Waitlist Email Flow (Implemented)
+
+When the guest reaches `confirm_email` state and says yes (`intent === "email_confirmed"`), the welcome page:
+
+1. POSTs `{ email, partySize }` to `POST /api/waitlist`
+2. The API runs the **dwell-time wait algorithm**:
+   - Fetches all occupied `table_zones` for `CAM-FLOOR` that have a `seated_at` timestamp and `capacity >= partySize`
+   - Computes `remaining = max(5, 25 - dwellMinutes)` for each (25 min meal baseline)
+   - Sorts ascending; picks `remaining[queuePosition]` for the new guest
+   - If queue depth exceeds table count, adds 25-min cycles
+3. Inserts a row into the `waitlist` Supabase table (`id`, `guest_name`, `party_size`, `email`, `joined_at`, `notified_at`)
+4. Sends a **waitlist confirmation email** via Resend (`lib/emails/waitlist-confirmation.ts`) with estimated wait time and queue position
+5. Kiosk speaks the personalised response: *"You're on the list! Estimated wait is around X minutes. We'll email you the moment a table is ready."* → resets after 10s
+
+### Table-Ready Notification
+
+When `POST /api/cameras/CAM-FLOOR/table-occupancy` transitions a zone from `occupied → free`:
+- Queries `waitlist` for the oldest unnotified entry where `party_size <= freed zone capacity`
+- Sets `notified_at` on that row
+- Sends a **"Your table is ready"** email via Resend (`lib/emails/table-ready.ts`) with the table name
+
+### Email Templates
+
+Both templates are plain HTML strings (no external email library) in `lib/emails/`:
+- **`waitlist-confirmation.ts`** — black header, estimated wait + queue position card, zinc-toned body
+- **`table-ready.ts`** — dark hero strip with "Your table is ready.", table name card with checkmark, urgency note
+
+### SQL Migration
+
+Run `docs/sql/waitlist.sql` in the Supabase SQL Editor before using this flow.
+
+---
+
 ## Open Questions
 
 1. Should conversation history accumulate across turns, or just last-turn context sent to Gemini?

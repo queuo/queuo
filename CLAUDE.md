@@ -58,6 +58,13 @@ A computer-vision-powered reception system for restaurants. An iPhone camera + Y
   - Dashboard polling uses lightweight detection payloads and lower-cost frame settings for better responsiveness
 - **Kiosk party-size detection (live)**: Welcome page now detects real party size via its own camera + vision server on mount. Opens `getUserMedia`, captures frames every 300ms, POSTs to `/detect`, stabilises across a 5-reading sliding window (all readings within ±1), then fires the greeting with the detected count. Falls back to asking the guest directly if the vision server is unreachable, camera is unavailable, or detection returns 0 after a 4-second timeout.
 - **Live table availability check**: The `no_reservation` branch no longer uses `Math.random()`. It now fetches `GET /api/cameras/CAM-FLOOR/table-zones` and finds the first zone where `status === "free"` AND `capacity >= partySize`. If found, the kiosk announces that specific table by name. If all tables are full or none can fit the party, it falls through to the email/waitlist flow. API errors default to the waitlist path.
+- **Waitlist email flow (fully implemented)**:
+  - When a guest's email is confirmed on the kiosk (`confirm_email` + `email_confirmed`), the welcome page POSTs to `POST /api/waitlist` with `{ email, partySize }`.
+  - The API calculates an estimated wait time using the **dwell-time algorithm** (see below) and inserts a row into the `waitlist` Supabase table.
+  - A branded confirmation email is sent via Resend with the estimated wait time and queue position.
+  - When any table zone transitions `occupied → free` via `POST /api/cameras/CAM-FLOOR/table-occupancy`, the next waitlist guest whose `party_size <= freed table capacity` is looked up, marked `notified_at`, and sent a "Your table is ready" email via Resend.
+  - **Wait-time algorithm**: `MEAL_DURATION = 25 min`. For each occupied zone with a `seated_at`, `remaining = max(5, 25 - dwellMinutes)`. Sort ascending. New guest's estimated wait = `remaining[queuePosition]`. If queue is longer than table count, stacks in cycles (lap × 25 min added). Falls back to flat 25 min if no occupied tables have `seated_at`.
+  - Email templates live in `lib/emails/` as plain HTML strings — no external dependency required.
 
 ### How It Works (end-to-end)
 
@@ -133,11 +140,14 @@ The `useTextToSpeech` hook (in `lib/useTextToSpeech.ts`) is configured with a sp
 - **[app/api/](app/api/)** — Next.js API routes:
   - [app/api/tables/route.ts](app/api/tables/route.ts) — `POST /api/tables`; accepts an array of `{ name, capacity, status }` rows and upserts them into the `tables` table using the server-side secret key (bypasses RLS). Used by the camera zone editor.
   - [app/api/cameras/[cameraId]/table-zones/route.ts](app/api/cameras/[cameraId]/table-zones/route.ts) — `GET`/`PUT` table-zone persistence for dashboard (validates bounds/capacity, upserts, deletes removed zones).
-  - [app/api/cameras/[cameraId]/table-occupancy/route.ts](app/api/cameras/[cameraId]/table-occupancy/route.ts) — `POST` occupancy transitions (`free`/`occupied`) and `seated_at` updates per zone.
+  - [app/api/cameras/[cameraId]/table-occupancy/route.ts](app/api/cameras/[cameraId]/table-occupancy/route.ts) — `POST` occupancy transitions (`free`/`occupied`) and `seated_at` updates per zone. On `occupied → free` transition, queries `waitlist` for next fitting guest, sets `notified_at`, and sends "table ready" email via Resend.
+  - [app/api/waitlist/route.ts](app/api/waitlist/route.ts) — `POST` joins a guest to the waitlist: runs dwell-time wait algorithm, inserts into `waitlist`, sends confirmation email. `GET` returns all unnotified entries ordered by `joined_at`.
 - **[lib/](lib/)** — Shared service clients:
   - [lib/supabase.ts](lib/supabase.ts) — Server-side Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); bypasses RLS; use in API routes and server actions only
   - [lib/supabase-browser.ts](lib/supabase-browser.ts) — Browser-side Supabase client (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`); uses `@supabase/ssr` `createBrowserClient`; stores session in cookies for proxy access
   - [lib/resend.ts](lib/resend.ts) — Resend client (`RESEND_API_KEY`); sends waitlist-ready and reservation confirmation emails
+  - [lib/emails/waitlist-confirmation.ts](lib/emails/waitlist-confirmation.ts) — HTML email template: waitlist confirmation with estimated wait time and queue position; Queueo black/zinc brand design
+  - [lib/emails/table-ready.ts](lib/emails/table-ready.ts) — HTML email template: "your table is ready" notification with table name; dark hero + brand design
   - [lib/utils.ts](lib/utils.ts) — `cn` helper for Tailwind class merging
   - [lib/useTextToSpeech.ts](lib/useTextToSpeech.ts) — Custom React hook for text-to-speech using Web Speech API; provides `speak()`, `stop()`, and `isSpeaking()` functions with configurable rate, pitch, volume, and language
 - **[proxy.ts](proxy.ts)** — Next.js 16 proxy (replaces `middleware.ts`); protects all `/admin/*` routes; redirects unauthenticated users to `/login`
@@ -167,6 +177,13 @@ Run:
 ```sql
 -- Supabase SQL Editor
 docs/sql/table_zones.sql
+```
+
+#### Migration: create `waitlist`
+Run:
+```sql
+-- Supabase SQL Editor
+docs/sql/waitlist.sql
 ```
 
 ---
