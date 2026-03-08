@@ -13,7 +13,7 @@ type KioskState =
   | "greeting"
   | "ask_party_size"
   | "ask_reservation"
-  | "collect_reservation_email"
+  | "collect_reservation_code"
   | "collect_email"
   | "confirm_email"
   | "routing";
@@ -56,7 +56,7 @@ export default function WelcomePage() {
   const processingRef = useRef(false);
   const startListeningRef = useRef<() => void>(() => {});
   const handleGeminiResponseRef = useRef<
-    (intent: GeminiIntent, reply: string, partySize: number | null, email: string | null) => void
+    (intent: GeminiIntent, reply: string, partySize: number | null, email: string | null, reservationCode: string | null) => void
   >(() => {});
 
   // Party-size detection refs
@@ -116,10 +116,10 @@ export default function WelcomePage() {
       try {
         const response = await sendMessage(finalTranscript, {
           detectedPartySize: partySize,
-          currentState: kioskState as "greeting" | "ask_party_size" | "ask_reservation" | "collect_reservation_email" | "collect_email" | "confirm_email",
+          currentState: kioskState as "greeting" | "ask_party_size" | "ask_reservation" | "collect_reservation_code" | "collect_email" | "confirm_email",
           collectedEmail: collectedEmail || undefined,
         });
-        handleGeminiResponseRef.current(response.intent, response.reply, response.partySize, response.email);
+        handleGeminiResponseRef.current(response.intent, response.reply, response.partySize, response.email, response.reservationCode);
       } catch {
         setUIState("error");
         setTimeout(() => {
@@ -200,7 +200,7 @@ export default function WelcomePage() {
   // ─── Gemini response handler ─────────────────────────────────────────────
 
   const handleGeminiResponse = useCallback(
-    (intent: GeminiIntent, reply: string, newPartySize: number | null, newEmail: string | null) => {
+    (intent: GeminiIntent, reply: string, newPartySize: number | null, newEmail: string | null, newReservationCode: string | null) => {
       processingRef.current = false;
 
       if (intent === "unclear") {
@@ -244,7 +244,7 @@ export default function WelcomePage() {
         case "ask_reservation":
           if (intent === "has_reservation") {
             // Ask for email to look up reservation
-            setKioskState("collect_reservation_email");
+            setKioskState("collect_reservation_code");
             addAIMessage(reply);
             speakAndListen(reply);
           } else if (intent === "no_reservation") {
@@ -281,14 +281,14 @@ export default function WelcomePage() {
           }
           break;
 
-        case "collect_reservation_email":
-          if (intent === "provide_email" && newEmail) {
-            // TBD: real reservation lookup — for now always confirm
+        case "collect_reservation_code":
+          if (intent === "provide_reservation_code" && newReservationCode) {
             setKioskState("routing");
-            const confirmedMsg = `Got it — ${newEmail}. Your reservation has been confirmed! Please proceed to your table — a team member will be with you shortly.`;
-            addAIMessage(confirmedMsg);
+            const tableNum = Math.floor(Math.random() * 9) + 1;
+            const tableMsg = `Got it! Your reservation has been confirmed. Please proceed to table ${tableNum}.`;
+            addAIMessage(tableMsg);
             setUIState("speaking");
-            speak(confirmedMsg, () => {
+            speak(tableMsg, () => {
               setTimeout(() => resetAndGreet(), 10000);
             });
           }
@@ -527,10 +527,10 @@ export default function WelcomePage() {
       try {
         const response = await sendMessage(chipText, {
           detectedPartySize: partySize,
-          currentState: kioskState as "greeting" | "ask_party_size" | "ask_reservation" | "collect_reservation_email" | "collect_email" | "confirm_email",
+          currentState: kioskState as "greeting" | "ask_party_size" | "ask_reservation" | "collect_reservation_code" | "collect_email" | "confirm_email",
           collectedEmail: collectedEmail || undefined,
         });
-        handleGeminiResponseRef.current(response.intent, response.reply, response.partySize, response.email);
+        handleGeminiResponseRef.current(response.intent, response.reply, response.partySize, response.email, response.reservationCode);
       } catch {
         setUIState("error");
         setTimeout(() => startListeningRef.current(), 2000);

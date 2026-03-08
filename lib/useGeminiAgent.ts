@@ -6,6 +6,7 @@ export type GeminiIntent =
   | 'provide_party_size'
   | 'has_reservation'
   | 'no_reservation'
+  | 'provide_reservation_code'
   | 'provide_email'
   | 'email_confirmed'
   | 'email_denied'
@@ -16,6 +17,7 @@ export interface GeminiResponse {
   intent: GeminiIntent;
   partySize: number | null;
   email: string | null;
+  reservationCode: string | null;
 }
 
 interface ConversationMessage {
@@ -23,7 +25,7 @@ interface ConversationMessage {
   text: string;
 }
 
-type KioskState = 'greeting' | 'ask_party_size' | 'ask_reservation' | 'collect_reservation_email' | 'collect_email' | 'confirm_email';
+type KioskState = 'greeting' | 'ask_party_size' | 'ask_reservation' | 'collect_reservation_code' | 'collect_email' | 'confirm_email';
 
 const SYSTEM_PROMPT = `You are a restaurant kiosk check-in assistant. Your ONLY job is to classify what the guest said and return a strictly prescribed JSON response. You must NOT improvise replies or deviate from the rules below.
 
@@ -82,9 +84,10 @@ The kiosk just asked: "Do you have a reservation with us today?"
 
   • Guest has a reservation (yes / I do / we have one / yeah / yep / absolutely / we booked, etc.):
     → intent: "has_reservation"
-    → reply: "Perfect! What email address is your reservation under?"
+    → reply: "Got it, what's the code for your reservation?"
     → partySize: null
     → email: null
+    → reservationCode: null
 
   • Guest does NOT have a reservation (no / we don't / walk-in / no reservation / nope / just walking in, etc.):
     → intent: "no_reservation"
@@ -100,22 +103,23 @@ The kiosk just asked: "Do you have a reservation with us today?"
 
 ─────────────────────────────────────────────────────────────
 
-STATE: collect_reservation_email
-The kiosk just asked: "What email address is your reservation under?"
-The guest is saying their email address aloud.
+STATE: collect_reservation_code
+The kiosk just asked: "Got it, what's the code for your reservation?"
+The guest is saying a 3-digit number between 001 and 099.
 
-  • Guest provides an email address (spoken verbally, e.g. "john at gmail dot com"):
-    → intent: "provide_email"
-    → reply: "Got it — [normalized_email]. Looking up your reservation now."
-      (substitute [normalized_email] with the actual normalized email in the reply string)
-    → partySize: null
-    → email: [normalize spoken email — same rules as collect_email state]
-
-  • Truly unclear (no email detected):
-    → intent: "unclear"
-    → reply: "I didn't catch that. Please say your email clearly — for example, 'john at gmail dot com'."
+  • Guest provides a number between 1 and 99 (spoken as digits or words, e.g. "zero four two", "forty two", "007", "72"):
+    → intent: "provide_reservation_code"
+    → reply: "confirmed"
     → partySize: null
     → email: null
+    → reservationCode: [the code as a zero-padded 3-digit string, e.g. "042"]
+
+  • Truly unclear (no valid number detected):
+    → intent: "unclear"
+    → reply: "I didn't catch that. Please say your 3-digit reservation code."
+    → partySize: null
+    → email: null
+    → reservationCode: null
 
 ─────────────────────────────────────────────────────────────
 
@@ -173,9 +177,10 @@ The collected email is in context as collectedEmail.
 OUTPUT SCHEMA (return exactly this shape, nothing else):
 {
   "reply": string,
-  "intent": "confirm_party_size" | "deny_party_size" | "provide_party_size" | "has_reservation" | "no_reservation" | "provide_email" | "email_confirmed" | "email_denied" | "unclear",
+  "intent": "confirm_party_size" | "deny_party_size" | "provide_party_size" | "has_reservation" | "no_reservation" | "provide_reservation_code" | "provide_email" | "email_confirmed" | "email_denied" | "unclear",
   "partySize": number | null,
-  "email": string | null
+  "email": string | null,
+  "reservationCode": string | null
 }`;
 
 export function useGeminiAgent() {
