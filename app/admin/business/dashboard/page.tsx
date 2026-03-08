@@ -1,16 +1,37 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Camera, Check, Pencil, Plus, Trash2, Users, Wifi, WifiOff, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Camera,
+  Loader2,
+  Pencil,
+  Plus,
+  Save,
+  Trash2,
+  Users,
+  Wifi,
+  WifiOff,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const VISION_SERVER =
   process.env.NEXT_PUBLIC_VISION_SERVER ?? "http://localhost:8000";
 
+const ENTRANCE_CAMERA_ID = "CAM-ENTRANCE";
+const FLOOR_CAMERA_ID = "CAM-FLOOR";
+const DETECT_FRAME_WIDTH = 288;
+const DETECT_JPEG_QUALITY = 0.58;
+const DETECT_MODEL_IMGSZ = 224;
+const ENTRANCE_DETECT_INTERVAL_MS = 300;
+const FLOOR_DETECT_INTERVAL_MS = 900;
+
 type CameraStatus = "online" | "degraded" | "offline";
 
-// ---- Browser-camera preset (existing CAM-01) ----
+type SaveStatus = "idle" | "saving" | "saved" | "error";
+
 interface CameraPreset {
   id: string;
   name: string;
@@ -19,25 +40,91 @@ interface CameraPreset {
   filter: string;
 }
 
+interface DrawPoint {
+  x: number;
+  y: number;
+}
+
+interface DraftRect {
+  start: DrawPoint;
+  current: DrawPoint;
+}
+
+interface TableZone {
+  id: string;
+  camera_id: string;
+  name: string;
+  capacity: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string | null;
+  status: "free" | "occupied";
+  seated_at: string | null;
+  updated_at?: string;
+}
+
+interface VisionCameraInfo {
+  camera_id: string;
+  source: number;
+  name: string;
+  zone: string;
+  people_count: number;
+}
+
+interface VisionCameraState extends VisionCameraInfo {
+  boxes: number[][];
+  frame_width: number;
+  frame_height: number;
+}
+
+interface DetectionSnapshot {
+  boxes: number[][];
+  frameWidth: number;
+  frameHeight: number;
+}
+
+interface ZoneEditorProps {
+  stream: MediaStream | null;
+  streamUrl?: string | null;
+  cameraName: string;
+  zones: TableZone[];
+  peopleAtTableById: Record<string, number>;
+  onClose: () => void;
+  onSave: (zones: TableZone[]) => Promise<void>;
+  saveStatus: SaveStatus;
+}
+
 const CAMERA_PRESETS: CameraPreset[] = [
   {
-    id: "CAM-01",
-    name: "Main Entrance",
+    id: ENTRANCE_CAMERA_ID,
+    name: "Entrance Camera",
     zone: "Entrance",
     peopleOffset: 0,
     filter: "saturate(1.05)",
   },
+  {
+    id: FLOOR_CAMERA_ID,
+    name: "Floor Camera",
+    zone: "Dining",
+    peopleOffset: 0,
+    filter: "saturate(1.02)",
+  },
 ];
 
-// ---- Vision-server camera (MJPEG stream) ----
-interface VisionCamera {
-  id: string;
-  name: string;
-  zone: string;
-  source: number;
-  streamUrl: string;
-  peopleCount: number;
-}
+const ZONE_COLORS = [
+  "#18181b",
+  "#3b82f6",
+  "#10b981",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#06b6d4",
+];
+
+const ZONES = ["All", "Entrance", "Dining"] as const;
+type Zone = (typeof ZONES)[number];
 
 const STATUS_BADGE: Record<CameraStatus, string> = {
   online: "bg-emerald-500",
@@ -45,31 +132,682 @@ const STATUS_BADGE: Record<CameraStatus, string> = {
   offline: "bg-red-500",
 };
 
+const TABLE_STATUS_COLOR = {
+  open: "#10b981",
+  occupied: "#ef4444",
+} as const;
+
 function now(): string {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
-// ---- Tile for browser-camera (getUserMedia) ----
-function BrowserCameraTile({
+function formatDwell(seatedAt: string | null): string {
+  if (!seatedAt) return "00:00";
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(seatedAt).getTime()) / 1000)
+  );
+  const mm = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const ss = (seconds % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function overlapArea(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number }
+): number {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  if (x2 <= x1 || y2 <= y1) return 0;
+  return (x2 - x1) * (y2 - y1);
+}
+
+function mapBoxToCoverViewport(
+  box: number[],
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number
+): { left: number; top: number; width: number; height: number } | null {
+  if (
+    box.length < 4 ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    viewportWidth <= 0 ||
+    viewportHeight <= 0
+  ) {
+    return null;
+  }
+
+  const x1 = Math.max(0, Math.min(box[0], box[2]));
+  const y1 = Math.max(0, Math.min(box[1], box[3]));
+  const x2 = Math.min(sourceWidth, Math.max(box[0], box[2]));
+  const y2 = Math.min(sourceHeight, Math.max(box[1], box[3]));
+  if (x2 <= x1 || y2 <= y1) return null;
+
+  const scale = Math.max(viewportWidth / sourceWidth, viewportHeight / sourceHeight);
+  const renderWidth = sourceWidth * scale;
+  const renderHeight = sourceHeight * scale;
+  const offsetX = (viewportWidth - renderWidth) / 2;
+  const offsetY = (viewportHeight - renderHeight) / 2;
+
+  const left = x1 * scale + offsetX;
+  const top = y1 * scale + offsetY;
+  const right = x2 * scale + offsetX;
+  const bottom = y2 * scale + offsetY;
+
+  const clippedLeft = Math.max(0, left);
+  const clippedTop = Math.max(0, top);
+  const clippedRight = Math.min(viewportWidth, right);
+  const clippedBottom = Math.min(viewportHeight, bottom);
+  if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) return null;
+
+  return {
+    left: clippedLeft,
+    top: clippedTop,
+    width: clippedRight - clippedLeft,
+    height: clippedBottom - clippedTop,
+  };
+}
+
+function drawZones(
+  canvas: HTMLCanvasElement,
+  zones: TableZone[],
+  draft: DraftRect | null,
+  peopleAtTableById: Record<string, number>,
+  editingZoneId: string | null
+) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (const zone of zones) {
+    const px = zone.x * canvas.width;
+    const py = zone.y * canvas.height;
+    const pw = zone.w * canvas.width;
+    const ph = zone.h * canvas.height;
+    const currentAtTable = peopleAtTableById[zone.id] ?? 0;
+    const isOccupied = zone.status === "occupied";
+    const statusColor = isOccupied ? TABLE_STATUS_COLOR.occupied : TABLE_STATUS_COLOR.open;
+
+    ctx.strokeStyle = statusColor;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.strokeRect(px, py, pw, ph);
+
+    ctx.fillStyle = isOccupied ? `${TABLE_STATUS_COLOR.occupied}33` : `${TABLE_STATUS_COLOR.open}2a`;
+    ctx.fillRect(px, py, pw, ph);
+
+    const label = `${zone.name} · ${currentAtTable}/${zone.capacity}`;
+    ctx.font = "bold 11px ui-sans-serif, system-ui, sans-serif";
+    const labelWidth = Math.min(pw, ctx.measureText(label).width + 14);
+
+    ctx.fillStyle = statusColor;
+    ctx.fillRect(px, py, labelWidth, 20);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, px + 6, py + 14);
+
+    if (editingZoneId === zone.id) {
+      ctx.strokeStyle = "#22d3ee";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(px - 1, py - 1, pw + 2, ph + 2);
+      ctx.setLineDash([]);
+
+      const editLabel = "EDITING";
+      ctx.font = "bold 10px ui-sans-serif, system-ui, sans-serif";
+      const editW = ctx.measureText(editLabel).width + 10;
+      const ey = Math.max(0, py - 18);
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillRect(px, ey, editW, 16);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillText(editLabel, px + 5, ey + 12);
+    }
+  }
+
+  if (draft) {
+    const rx = Math.min(draft.start.x, draft.current.x);
+    const ry = Math.min(draft.start.y, draft.current.y);
+    const rw = Math.abs(draft.current.x - draft.start.x);
+    const rh = Math.abs(draft.current.y - draft.start.y);
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.fillStyle = "#ffffff22";
+    ctx.fillRect(rx, ry, rw, rh);
+  }
+}
+
+function ZoneEditorModal({
+  stream,
+  streamUrl,
+  cameraName,
+  zones,
+  peopleAtTableById,
+  onClose,
+  onSave,
+  saveStatus,
+}: ZoneEditorProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [localZones, setLocalZones] = useState<TableZone[]>(() => zones);
+  const [drawMode, setDrawMode] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [draft, setDraft] = useState<DraftRect | null>(null);
+  const drawStartRef = useRef<DrawPoint | null>(null);
+
+  const [pendingBounds, setPendingBounds] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const [pendingName, setPendingName] = useState("");
+  const [pendingCapacity, setPendingCapacity] = useState(4);
+  const [editingZoneId, setEditingZoneId] = useState<string | null>(null);
+  const draggingZoneIdRef = useRef<string | null>(null);
+  const dragOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
+  useEffect(() => {
+    if (stream) {
+      const video = videoRef.current;
+      if (!video) return;
+      video.srcObject = stream;
+      video.play().catch(() => {});
+      return () => {
+        if (video.srcObject) video.srcObject = null;
+      };
+    }
+  }, [stream]);
+
+  useEffect(() => {
+    const target = stream ? videoRef.current : imageRef.current;
+    const canvas = canvasRef.current;
+    if (!target || !canvas) return;
+
+    const sync = () => {
+      canvas.width = target.clientWidth;
+      canvas.height = target.clientHeight;
+      drawZones(canvas, localZones, draft, peopleAtTableById, editingZoneId);
+    }
+
+    const ro = new ResizeObserver(sync);
+    ro.observe(target);
+    sync();
+    return () => ro.disconnect();
+  }, [draft, editingZoneId, localZones, peopleAtTableById, stream, streamUrl]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    drawZones(canvas, localZones, draft, peopleAtTableById, editingZoneId);
+  }, [editingZoneId, localZones, draft, peopleAtTableById]);
+
+  const pointFromEvent = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>): DrawPoint => {
+      const rect = canvasRef.current!.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    },
+    []
+  );
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const pt = pointFromEvent(e);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      if (drawMode) {
+        drawStartRef.current = pt;
+        setIsDrawing(true);
+        setDraft({ start: pt, current: pt });
+        return;
+      }
+
+      if (!editingZoneId) return;
+      const zone = localZones.find((item) => item.id === editingZoneId);
+      if (!zone) return;
+
+      const zonePx = {
+        x: zone.x * canvas.width,
+        y: zone.y * canvas.height,
+        w: zone.w * canvas.width,
+        h: zone.h * canvas.height,
+      };
+
+      const inside =
+        pt.x >= zonePx.x &&
+        pt.x <= zonePx.x + zonePx.w &&
+        pt.y >= zonePx.y &&
+        pt.y <= zonePx.y + zonePx.h;
+      if (!inside) return;
+
+      draggingZoneIdRef.current = zone.id;
+      dragOffsetRef.current = {
+        dx: pt.x - zonePx.x,
+        dy: pt.y - zonePx.y,
+      };
+    },
+    [drawMode, editingZoneId, localZones, pointFromEvent]
+  );
+
+  const onMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (isDrawing && drawStartRef.current) {
+        setDraft({ start: drawStartRef.current, current: pointFromEvent(e) });
+        return;
+      }
+
+      if (!draggingZoneIdRef.current) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const pt = pointFromEvent(e);
+      const zoneId = draggingZoneIdRef.current;
+      const offset = dragOffsetRef.current;
+
+      setLocalZones((prev) =>
+        prev.map((zone) => {
+          if (zone.id !== zoneId) return zone;
+          const xPx = Math.max(0, Math.min(canvas.width - zone.w * canvas.width, pt.x - offset.dx));
+          const yPx = Math.max(0, Math.min(canvas.height - zone.h * canvas.height, pt.y - offset.dy));
+          return {
+            ...zone,
+            x: xPx / canvas.width,
+            y: yPx / canvas.height,
+          };
+        })
+      );
+    },
+    [isDrawing, pointFromEvent]
+  );
+
+  const onMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (draggingZoneIdRef.current) {
+        draggingZoneIdRef.current = null;
+        return;
+      }
+
+      if (!isDrawing || !drawStartRef.current) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const end = pointFromEvent(e);
+      const start = drawStartRef.current;
+      const x = Math.min(start.x, end.x) / canvas.width;
+      const y = Math.min(start.y, end.y) / canvas.height;
+      const w = Math.abs(end.x - start.x) / canvas.width;
+      const h = Math.abs(end.y - start.y) / canvas.height;
+
+      setIsDrawing(false);
+      setDraft(null);
+
+      if (w < 0.02 || h < 0.02) return;
+
+      setPendingBounds({ x, y, w, h });
+      setPendingName(`Table ${localZones.length + 1}`);
+      setPendingCapacity(4);
+      setDrawMode(false);
+    },
+    [isDrawing, localZones.length, pointFromEvent]
+  );
+
+  const addPendingZone = useCallback(() => {
+    if (!pendingBounds || !pendingName.trim()) return;
+
+    setLocalZones((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        camera_id: FLOOR_CAMERA_ID,
+        name: pendingName.trim(),
+        capacity: Math.max(1, Math.floor(pendingCapacity) || 1),
+        ...pendingBounds,
+        color: ZONE_COLORS[prev.length % ZONE_COLORS.length],
+        status: "free",
+        seated_at: null,
+      },
+    ]);
+
+    setPendingBounds(null);
+    setPendingName("");
+  }, [pendingBounds, pendingName, pendingCapacity]);
+
+  const removeZone = useCallback((id: string) => {
+    if (editingZoneId === id) {
+      setEditingZoneId(null);
+    }
+    setLocalZones((prev) => prev.filter((zone) => zone.id !== id));
+  }, [editingZoneId]);
+
+  const updateZone = useCallback(
+    (id: string, patch: Partial<Pick<TableZone, "name" | "capacity">>) => {
+      setLocalZones((prev) =>
+        prev.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone))
+      );
+    },
+    []
+  );
+
+  const closeAndSave = useCallback(() => {
+    if (saveStatus === "saving") return;
+    void onSave(localZones).finally(() => {
+      onClose();
+    });
+  }, [localZones, onClose, onSave, saveStatus]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          closeAndSave();
+        }
+      }}
+    >
+      <div
+        className="flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+              Zone Setup
+            </p>
+            <h2 className="text-lg font-semibold text-zinc-900">{cameraName}</h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDrawMode((prev) => !prev);
+                setPendingBounds(null);
+                setEditingZoneId(null);
+              }}
+              className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
+                drawMode
+                  ? "border-zinc-900 bg-zinc-900 text-white"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+              }`}
+            >
+              <Plus className="size-3.5" />
+              {drawMode ? "Drawing" : "Add Zone"}
+            </button>
+
+            <Button
+              size="sm"
+              disabled={saveStatus === "saving"}
+              onClick={() => onSave(localZones)}
+              className="h-9 rounded-xl bg-black px-4 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {saveStatus === "saving" ? (
+                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 size-3.5" />
+              )}
+              {saveStatus === "saving"
+                ? "Saving"
+                : saveStatus === "saved"
+                ? "Saved"
+                : saveStatus === "error"
+                ? "Error"
+                : "Save Layout"}
+            </Button>
+
+            <button
+              type="button"
+              onClick={closeAndSave}
+              className="rounded-lg border border-zinc-200 p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </header>
+
+        <div className="flex flex-1 gap-4 overflow-hidden p-4">
+          <div className="flex flex-1 items-start overflow-hidden">
+            <div className="relative aspect-[16/10] w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950">
+              {stream ? (
+                <video
+                  ref={videoRef}
+                  muted
+                  playsInline
+                  className="h-full w-full object-cover"
+                  style={{ filter: "saturate(1.02)" }}
+                />
+              ) : streamUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  ref={imageRef}
+                  src={streamUrl}
+                  alt="Dining camera stream"
+                  className="h-full w-full object-cover"
+                  style={{ filter: "saturate(1.02)" }}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
+                  No dining camera stream
+                </div>
+              )}
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 h-full w-full"
+                style={{ cursor: drawMode ? "crosshair" : editingZoneId ? "move" : "default" }}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onMouseLeave={() => {
+                  draggingZoneIdRef.current = null;
+                  if (isDrawing) {
+                    setIsDrawing(false);
+                    setDraft(null);
+                  }
+                }}
+              />
+
+              {drawMode && (
+                <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-xl border border-white/20 bg-black/70 px-4 py-2 text-sm font-medium text-white">
+                  Click and drag to draw table zone
+                </div>
+              )}
+              {editingZoneId && !drawMode && (
+                <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-xl border border-white/20 bg-black/70 px-4 py-2 text-sm font-medium text-white">
+                  Drag selected table box to reposition
+                </div>
+              )}
+            </div>
+          </div>
+
+          <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+            <div className="border-b border-zinc-100 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                Tables
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                Set table names and seat capacities.
+              </p>
+              {editingZoneId && (
+                <p className="mt-1 text-[11px] font-semibold text-cyan-700">
+                  Editing selected table box
+                </p>
+              )}
+            </div>
+
+            <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+              {pendingBounds && (
+                <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <p className="text-xs font-semibold text-zinc-700">New zone</p>
+                  <input
+                    autoFocus
+                    value={pendingName}
+                    onChange={(e) => setPendingName(e.target.value)}
+                    placeholder="Table name"
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="whitespace-nowrap text-xs text-zinc-500">Seats</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={pendingCapacity}
+                      onChange={(e) => setPendingCapacity(Number(e.target.value))}
+                      className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={addPendingZone}
+                      disabled={!pendingName.trim()}
+                      className="flex-1 rounded-lg bg-black py-1.5 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingBounds(null)}
+                      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {localZones.length === 0 && !pendingBounds && (
+                <p className="py-8 text-center text-xs text-zinc-400">
+                  No zones yet. Draw your first table zone.
+                </p>
+              )}
+
+              {localZones.map((zone) => (
+                <div
+                  key={zone.id}
+                  className={`space-y-2 rounded-xl border p-3 ${
+                    editingZoneId === zone.id
+                      ? "border-zinc-300 bg-zinc-100"
+                      : "border-zinc-100 bg-zinc-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="size-2.5 rounded-full border border-black/10"
+                      style={{ backgroundColor: zone.color ?? "#18181b" }}
+                    />
+                    <input
+                      value={zone.name}
+                      onChange={(e) => updateZone(zone.id, { name: e.target.value })}
+                      className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold text-zinc-900 outline-none hover:border-zinc-200 focus:border-zinc-300 focus:bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrawMode(false);
+                        setPendingBounds(null);
+                        setEditingZoneId((prev) => (prev === zone.id ? null : zone.id));
+                      }}
+                      className={`rounded-md p-1 transition ${
+                        editingZoneId === zone.id
+                          ? "bg-zinc-900 text-white"
+                          : "text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                      }`}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeZone(zone.id)}
+                      className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-red-500"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 pl-4">
+                    <label className="text-[11px] text-zinc-500">Seats</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={zone.capacity}
+                      onChange={(e) =>
+                        updateZone(zone.id, {
+                          capacity: Math.max(1, Number(e.target.value) || 1),
+                        })
+                      }
+                      className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {localZones.length > 0 && (
+              <div className="border-t border-zinc-100 px-4 py-3">
+                <p className="text-[11px] text-zinc-500">
+                  {localZones.length} zones • {localZones.reduce((s, z) => s + z.capacity, 0)} total seats
+                </p>
+              </div>
+            )}
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CameraTile({
   camera,
   stream,
+  streamUrl,
   status,
   peopleCount,
   fps,
   latencyMs,
   visionConnected,
   timestamp,
+  tableSummary,
+  tableZones,
+  peopleAtTableById,
+  detectionSnapshot,
+  onConfigureTables,
+  onOpenView,
 }: {
   camera: CameraPreset;
   stream: MediaStream | null;
+  streamUrl?: string | null;
   status: CameraStatus;
   peopleCount: number;
   fps: number;
   latencyMs: number;
   visionConnected: boolean;
   timestamp: string;
+  tableSummary?: string;
+  tableZones?: TableZone[];
+  peopleAtTableById?: Record<string, number>;
+  detectionSnapshot?: DetectionSnapshot;
+  onConfigureTables?: () => void;
+  onOpenView?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaFrameRef = useRef<HTMLDivElement>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     const video = videoRef.current;
@@ -81,532 +819,1016 @@ function BrowserCameraTile({
     };
   }, [stream]);
 
+  useEffect(() => {
+    const frame = mediaFrameRef.current;
+    if (!frame) return;
+
+    const sync = () => {
+      setViewportSize({
+        width: frame.clientWidth,
+        height: frame.clientHeight,
+      });
+    };
+
+    const ro = new ResizeObserver(sync);
+    ro.observe(frame);
+    sync();
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <Link href={`/admin/business/camera/${camera.id}`} className="block">
-      <article className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950 shadow-sm transition hover:border-zinc-300 hover:shadow-md cursor-pointer">
-        <div className="relative aspect-video w-full">
-          {stream ? (
-            <video
-              ref={videoRef}
-              muted
-              playsInline
-              className="h-full w-full object-cover"
-              style={{ filter: camera.filter }}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
-              <div className="flex flex-col items-center gap-2">
-                <Camera className="size-8 text-zinc-600" />
-                <span>No signal</span>
-              </div>
+    <article
+      className={`group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950 shadow-sm transition hover:border-zinc-300 hover:shadow-md ${
+        onOpenView ? "cursor-pointer" : ""
+      }`}
+      onClick={onOpenView}
+    >
+      <div ref={mediaFrameRef} className="relative aspect-[16/10] w-full">
+        {stream ? (
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            className="h-full w-full object-cover"
+            style={{ filter: camera.filter }}
+          />
+        ) : streamUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={streamUrl}
+            alt={`${camera.name} stream`}
+            className="h-full w-full object-cover"
+            style={{ filter: camera.filter }}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
+            <div className="flex flex-col items-center gap-2">
+              <Camera className="size-8 text-zinc-600" />
+              <span>No signal</span>
+            </div>
+          </div>
+        )}
+
+        {camera.id === ENTRANCE_CAMERA_ID &&
+          detectionSnapshot &&
+          detectionSnapshot.boxes.length > 0 && (
+            <div className="pointer-events-none absolute inset-0">
+              {detectionSnapshot.boxes.map((box, index) => {
+                const rect = mapBoxToCoverViewport(
+                  box,
+                  detectionSnapshot.frameWidth,
+                  detectionSnapshot.frameHeight,
+                  viewportSize.width,
+                  viewportSize.height
+                );
+                if (!rect) return null;
+                return (
+                  <div
+                    key={`entrance-bbox-${index}`}
+                    className="absolute border-2 border-red-500/90 bg-red-500/10"
+                    style={{
+                      left: `${(rect.left / viewportSize.width) * 100}%`,
+                      top: `${(rect.top / viewportSize.height) * 100}%`,
+                      width: `${(rect.width / viewportSize.width) * 100}%`,
+                      height: `${(rect.height / viewportSize.height) * 100}%`,
+                    }}
+                  />
+                );
+              })}
             </div>
           )}
 
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
-
-          <div className="absolute left-3 top-3 flex items-center gap-1.5">
-            <span className={`size-2 rounded-full ${STATUS_BADGE[status]} shadow-sm`} />
-            {visionConnected ? (
-              <Wifi className="size-3.5 text-white/70" />
-            ) : (
-              <WifiOff className="size-3.5 text-amber-400/80" />
-            )}
+        {tableZones && tableZones.length > 0 && (
+          <div className="pointer-events-none absolute inset-0">
+            {tableZones.map((zone) => {
+              const isOccupied = zone.status === "occupied";
+              const currentAtTable = peopleAtTableById?.[zone.id] ?? 0;
+              const dwellLabel =
+                currentAtTable > 0 && isOccupied ? formatDwell(zone.seated_at) : "00:00";
+              return (
+                <div
+                  key={zone.id}
+                  className="absolute"
+                  style={{
+                    left: `${zone.x * 100}%`,
+                    top: `${zone.y * 100}%`,
+                    width: `${zone.w * 100}%`,
+                    height: `${zone.h * 100}%`,
+                    border: `2px solid ${isOccupied ? "#ef4444" : "#10b981"}`,
+                    backgroundColor: isOccupied ? "rgba(239,68,68,0.16)" : "rgba(16,185,129,0.14)",
+                  }}
+                >
+                  <div
+                    className="inline-block px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                    style={{
+                      backgroundColor: isOccupied ? "#ef4444" : "#10b981",
+                    }}
+                  >
+                    {zone.name} {currentAtTable}/{zone.capacity} · {dwellLabel}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
-          <div className="absolute right-3 top-3">
-            <span className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-              <Users className="size-3" />
-              {peopleCount}
-            </span>
-          </div>
-
-          <div className="absolute bottom-0 left-0 right-0 px-3 pb-3">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-sm font-semibold text-white">{camera.name}</p>
-                <p className="text-[11px] text-zinc-300">
-                  {camera.id} &bull; {timestamp}
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
-                  {fps} FPS
-                </span>
-                <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
-                  {latencyMs}ms
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </article>
-    </Link>
-  );
-}
-
-// ---- Tile for vision-server camera (MJPEG stream) ----
-function VisionCameraTile({
-  camera,
-  onRemove,
-  timestamp,
-}: {
-  camera: VisionCamera;
-  onRemove: (id: string) => void;
-  timestamp: string;
-}) {
-  const [count, setCount] = useState(camera.peopleCount);
-
-  // Poll the server for the live people count every 1.5s
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const res = await fetch(`${VISION_SERVER}/cameras/${camera.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setCount(typeof data.people_count === "number" ? data.people_count : 0);
-        }
-      } catch {
-        // server offline
-      }
-    };
-    poll();
-    const interval = setInterval(poll, 1500);
-    return () => clearInterval(interval);
-  }, [camera.id]);
-
-  return (
-    <article className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950 shadow-sm transition hover:border-zinc-300 hover:shadow-md">
-      <div className="relative aspect-video w-full">
-        {/* MJPEG stream — browser renders this natively via multipart/x-mixed-replace */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={camera.streamUrl}
-          alt={camera.name}
-          className="h-full w-full object-cover"
-        />
+        )}
 
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
 
         <div className="absolute left-3 top-3 flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-emerald-500 shadow-sm" />
-          <Wifi className="size-3.5 text-white/70" />
-          <button
-            type="button"
-            onClick={() => onRemove(camera.id)}
-            className="rounded bg-black/50 p-0.5 text-white/60 backdrop-blur-sm transition hover:bg-red-500/80 hover:text-white"
-            title="Remove camera"
-          >
-            <X className="size-3" />
-          </button>
+          <span className={`size-2 rounded-full ${STATUS_BADGE[status]} shadow-sm`} />
+          {visionConnected ? (
+            <Wifi className="size-3.5 text-white/70" />
+          ) : (
+            <WifiOff className="size-3.5 text-amber-400/80" />
+          )}
         </div>
 
         <div className="absolute right-3 top-3">
-          <span className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-            <Users className="size-3" />
-            {count}
-          </span>
+          {camera.id === ENTRANCE_CAMERA_ID ? (
+            <span className="rounded-md bg-black/60 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+              People detected: {peopleCount}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+              <Users className="size-3" />
+              {peopleCount}
+            </span>
+          )}
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 px-3 pb-3">
-          <div className="flex items-end justify-between">
+          <div className="flex items-end justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-white">{camera.name}</p>
               <p className="text-[11px] text-zinc-300">
-                {camera.id} &bull; src:{camera.source} &bull; {timestamp}
+                {camera.id} • {timestamp}
               </p>
+              {tableSummary && (
+                <p className="mt-1 text-[11px] font-medium text-emerald-300">{tableSummary}</p>
+              )}
             </div>
-            <span className="rounded bg-emerald-600/80 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
-              LIVE
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
+                {fps} FPS
+              </span>
+              <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
+                {latencyMs}ms
+              </span>
+            </div>
           </div>
+          {onConfigureTables && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfigureTables();
+              }}
+              className="mt-2 w-full rounded-lg border border-white/20 bg-black/55 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-black/70"
+            >
+              Configure Table Zones
+            </button>
+          )}
         </div>
       </div>
     </article>
   );
 }
 
-// ---- Add Camera Modal ----
+export default function BusinessDashboardPage() {
+  const [activeZone, setActiveZone] = useState<Zone>("All");
+  const [cameraStreams, setCameraStreams] = useState<Record<string, MediaStream | null>>({
+    [ENTRANCE_CAMERA_ID]: null,
+    [FLOOR_CAMERA_ID]: null,
+  });
+  const streamsRef = useRef<Record<string, MediaStream | null>>({
+    [ENTRANCE_CAMERA_ID]: null,
+    [FLOOR_CAMERA_ID]: null,
+  });
+  const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<{
+    entrance: string;
+    dining: string;
+  }>({ entrance: "", dining: "" });
+  const [useVisionBridgeForDining, setUseVisionBridgeForDining] = useState(true);
+  const [diningSourceIndex, setDiningSourceIndex] = useState(0);
+  const [visionBridgeCameraIdByRole, setVisionBridgeCameraIdByRole] = useState<{
+    entrance: string | null;
+    dining: string | null;
+  }>({ entrance: null, dining: null });
+  const visionBridgeIdsRef = useRef<{ entrance: string | null; dining: string | null }>({
+    entrance: null,
+    dining: null,
+  });
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [visionConnectedByCamera, setVisionConnectedByCamera] = useState<Record<string, boolean>>({
+    [ENTRANCE_CAMERA_ID]: false,
+    [FLOOR_CAMERA_ID]: false,
+  });
+  const [peopleCountByCamera, setPeopleCountByCamera] = useState<Record<string, number>>({
+    [ENTRANCE_CAMERA_ID]: 0,
+    [FLOOR_CAMERA_ID]: 0,
+  });
+  const [detectionSnapshotByCamera, setDetectionSnapshotByCamera] = useState<
+    Record<string, DetectionSnapshot>
+  >({
+    [ENTRANCE_CAMERA_ID]: { boxes: [], frameWidth: 0, frameHeight: 0 },
+    [FLOOR_CAMERA_ID]: { boxes: [], frameWidth: 0, frameHeight: 0 },
+  });
+  const [estimatedFpsByCamera, setEstimatedFpsByCamera] = useState<Record<string, number>>({
+    [ENTRANCE_CAMERA_ID]: 0,
+    [FLOOR_CAMERA_ID]: 0,
+  });
+  const [timestamp, setTimestamp] = useState(now());
+  const [zoneEditorOpen, setZoneEditorOpen] = useState(false);
+  const [zones, setZones] = useState<TableZone[]>([]);
+  const [peopleAtTableById, setPeopleAtTableById] = useState<Record<string, number>>({});
+  const [zoneLoadError, setZoneLoadError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 
-function AddCameraModal({
-  onClose,
-  onAdd,
-}: {
-  onClose: () => void;
-  onAdd: (camera: VisionCamera) => void;
-}) {
-  const [name, setName] = useState("");
-  const [zone, setZone] = useState("Entrance");
-  const [source, setSource] = useState("0");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const analysisEntranceVideoRef = useRef<HTMLVideoElement>(null);
+  const analysisEntranceCanvasRef = useRef<HTMLCanvasElement>(null);
+  const analysisDiningVideoRef = useRef<HTMLVideoElement>(null);
+  const analysisDiningCanvasRef = useRef<HTMLCanvasElement>(null);
+  const detectInflightRef = useRef<Record<string, boolean>>({
+    [ENTRANCE_CAMERA_ID]: false,
+    [FLOOR_CAMERA_ID]: false,
+  });
+  const lastFpsUiUpdateRef = useRef<Record<string, number>>({
+    [ENTRANCE_CAMERA_ID]: 0,
+    [FLOOR_CAMERA_ID]: 0,
+  });
 
-  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError("Camera name is required.");
-      return;
+  const zoneStateRef = useRef<
+    Record<string, { occupied: boolean; hasSeenMultiPerson: boolean }>
+  >({});
+  const lastPostedOccupancyRef = useRef<string>("");
+
+  const stopStream = useCallback((stream: MediaStream | null) => {
+    stream?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const isIphoneCameraLabel = useCallback((label: string) => {
+    return /(iphone|continuity)/i.test(label);
+  }, []);
+
+  const isLikelyLocalCameraLabel = useCallback((label: string) => {
+    return /(facetime|built-?in|integrated|internal|webcam)/i.test(label) && !isIphoneCameraLabel(label);
+  }, [isIphoneCameraLabel]);
+
+  const pickDefaultDeviceIds = useCallback((inputs: MediaDeviceInfo[]) => {
+    if (inputs.length === 0) {
+      return { entrance: "", dining: "" };
     }
-    setLoading(true);
-    setError(null);
+
+    const iphone = inputs.find((d) => isIphoneCameraLabel(d.label));
+    const local =
+      inputs.find((d) => isLikelyLocalCameraLabel(d.label)) ??
+      inputs.find((d) => d.deviceId !== iphone?.deviceId) ??
+      inputs[0];
+
+    const dining = iphone ?? inputs.find((d) => d.deviceId !== local?.deviceId) ?? inputs[0];
+
+    return {
+      entrance: local?.deviceId ?? "",
+      dining: dining?.deviceId ?? "",
+    };
+  }, [isIphoneCameraLabel, isLikelyLocalCameraLabel]);
+
+  const chooseValidSelection = useCallback(
+    (
+      previous: { entrance: string; dining: string },
+      inputs: MediaDeviceInfo[]
+    ) => {
+      if (inputs.length === 0) {
+        return { entrance: "", dining: "" };
+      }
+
+      const defaults = pickDefaultDeviceIds(inputs);
+      const hasDevice = (deviceId: string) => inputs.some((d) => d.deviceId === deviceId);
+
+      const entrance = hasDevice(previous.entrance) ? previous.entrance : defaults.entrance;
+      let dining = hasDevice(previous.dining) ? previous.dining : defaults.dining;
+
+      if (entrance === dining && inputs.length > 1) {
+        const altForDining = inputs.find((d) => d.deviceId !== entrance);
+        if (altForDining) {
+          dining = altForDining.deviceId;
+        }
+      }
+
+      return { entrance, dining };
+    },
+    [pickDefaultDeviceIds]
+  );
+
+  const refreshVideoInputs = useCallback(
+    async (ensurePermission: boolean) => {
+      let bootstrapStream: MediaStream | null = null;
+
+      if (ensurePermission) {
+        try {
+          // Ensure labels are available before enumerateDevices().
+          bootstrapStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch {
+          setCameraError("Camera permission denied or no camera available.");
+          return;
+        } finally {
+          stopStream(bootstrapStream);
+        }
+      }
+
+      try {
+        const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(
+          (device) => device.kind === "videoinput"
+        );
+        setVideoInputs(inputs);
+        setSelectedDeviceIds((previous) => chooseValidSelection(previous, inputs));
+        if (inputs.length === 0) {
+          setCameraError("No camera devices found.");
+        } else {
+          setCameraError(null);
+        }
+      } catch {
+        setCameraError("Unable to enumerate camera devices.");
+      }
+    },
+    [chooseValidSelection, stopStream]
+  );
+
+  const setVisionBridgeIds = useCallback((next: { entrance: string | null; dining: string | null }) => {
+    visionBridgeIdsRef.current = next;
+    setVisionBridgeCameraIdByRole(next);
+  }, []);
+
+  const stopVisionBridgeCameras = useCallback(async () => {
+    const ids = [visionBridgeIdsRef.current.dining].filter(
+      (id): id is string => Boolean(id)
+    );
+    await Promise.all(
+      ids.map((cameraId) =>
+        fetch(`${VISION_SERVER}/cameras/${cameraId}`, { method: "DELETE" }).catch(() => null)
+      )
+    );
+    setVisionBridgeIds({ entrance: null, dining: null });
+  }, [setVisionBridgeIds]);
+
+  const startVisionBridgeCameras = useCallback(async () => {
     try {
-      const res = await fetch(`${VISION_SERVER}/cameras`, {
+      await stopVisionBridgeCameras();
+
+      const diningRes = await fetch(`${VISION_SERVER}/cameras`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source: parseInt(source, 10),
-          name: name.trim(),
-          zone,
+          source: diningSourceIndex,
+          name: "Dining Camera",
+          zone: "Dining",
         }),
       });
-      if (!res.ok) throw new Error(`Server responded ${res.status}`);
-      const data = await res.json();
-      onAdd({
-        id: data.camera_id,
-        name: data.name,
-        zone: data.zone,
-        source: data.source,
-        streamUrl: `${VISION_SERVER}/stream/${data.camera_id}`,
-        peopleCount: 0,
-      });
-      onClose();
-    } catch {
-      setError(
-        "Could not connect to vision server. Make sure it is running:\n" +
-          "uvicorn vision.server:app --port 8000 --reload"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-zinc-900">Add Camera</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-zinc-700">
-              Camera Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. iPhone Main Cam"
-              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-zinc-700">
-              Zone
-            </label>
-            <input
-              type="text"
-              value={zone}
-              onChange={(e) => setZone(e.target.value)}
-              placeholder="e.g. Entrance, Floor, Bar…"
-              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-zinc-700">
-              Camera Source Index
-            </label>
-            <input
-              type="number"
-              min={0}
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-            />
-            <p className="mt-1 text-[11px] text-zinc-400">
-              0 = iPhone via Continuity Camera. Use 1, 2 … for additional devices.
-            </p>
-          </div>
-
-          {error && (
-            <p className="whitespace-pre-line rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              {error}
-            </p>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-            >
-              {loading ? "Starting…" : "Start Camera"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---- Dashboard page ----
-export default function BusinessDashboardPage() {
-  const [activeZone, setActiveZone] = useState<string>("All");
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [visionConnected, setVisionConnected] = useState(false);
-  const [peopleCount, setPeopleCount] = useState(0);
-  const [estimatedFps, setEstimatedFps] = useState(0);
-  const [timestamp, setTimestamp] = useState(now());
-  const [visionCameras, setVisionCameras] = useState<VisionCamera[]>([]);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingZone, setEditingZone] = useState<string | null>(null);
-  const [editZoneValue, setEditZoneValue] = useState("");
-
-  // Restore persisted cameras on mount
-  useEffect(() => {
-    const saved = localStorage.getItem("vision-cameras");
-    if (!saved) return;
-    let configs: Array<{ name: string; zone: string; source: number }>;
-    try {
-      configs = JSON.parse(saved);
-    } catch {
-      return;
-    }
-    configs.forEach(async (config) => {
-      try {
-        const res = await fetch(`${VISION_SERVER}/cameras`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(config),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        setVisionCameras((prev) => [
-          ...prev,
-          {
-            id: data.camera_id,
-            name: data.name,
-            zone: data.zone,
-            source: data.source,
-            streamUrl: `${VISION_SERVER}/stream/${data.camera_id}`,
-            peopleCount: 0,
-          },
-        ]);
-      } catch {
-        // vision server not running — skip silently
+      if (!diningRes.ok) {
+        throw new Error(`Unable to start dining camera source ${diningSourceIndex}`);
       }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      const dining = (await diningRes.json()) as VisionCameraInfo;
 
-  const analysisVideoRef = useRef<HTMLVideoElement>(null);
-  const analysisCanvasRef = useRef<HTMLCanvasElement>(null);
-  const detectInflightRef = useRef(false);
+      setVisionBridgeIds({
+        entrance: null,
+        dining: dining.camera_id,
+      });
+      setCameraError(null);
+    } catch (err) {
+      setCameraError(
+        err instanceof Error
+          ? err.message
+          : `Unable to start vision camera bridge (source ${diningSourceIndex}).`
+      );
+    }
+  }, [diningSourceIndex, setVisionBridgeIds, stopVisionBridgeCameras]);
 
   useEffect(() => {
     const timer = setInterval(() => setTimestamp(now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    let currentStream: MediaStream | null = null;
-
-    async function initCamera() {
-      try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        });
-        if (cancelled) {
-          currentStream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        setStream(currentStream);
-        setCameraError(null);
-      } catch {
-        setCameraError("Camera permission denied or no camera available.");
+  const loadZones = useCallback(async () => {
+    try {
+      setZoneLoadError(null);
+      const res = await fetch(`/api/cameras/${FLOOR_CAMERA_ID}/table-zones`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
+      const data = (await res.json()) as { zones?: TableZone[] };
+      const loadedZones = data.zones ?? [];
+      setZones(loadedZones);
+      setPeopleAtTableById((prev) => {
+        const next: Record<string, number> = {};
+        for (const zone of loadedZones) {
+          next[zone.id] = prev[zone.id] ?? 0;
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error("Failed to load zones", err);
+      setZoneLoadError("Unable to load floor table zones.");
     }
-
-    initCamera();
-    return () => {
-      cancelled = true;
-      currentStream?.getTracks().forEach((t) => t.stop());
-    };
   }, []);
 
   useEffect(() => {
-    const video = analysisVideoRef.current;
-    if (!video) return;
-    video.srcObject = stream;
-    if (stream) video.play().catch(() => {});
-  }, [stream]);
+    loadZones();
+  }, [loadZones]);
 
   useEffect(() => {
-    if (!stream) return;
+    refreshVideoInputs(true);
 
-    const video = analysisVideoRef.current;
-    const canvas = analysisCanvasRef.current;
+    const onDeviceChange = () => {
+      refreshVideoInputs(false);
+    };
+
+    navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+    };
+  }, [refreshVideoInputs]);
+
+  useEffect(() => {
+    if (!selectedDeviceIds.entrance && !selectedDeviceIds.dining) return;
+
+    let cancelled = false;
+    const nextStreams: Record<string, MediaStream | null> = {
+      [ENTRANCE_CAMERA_ID]: null,
+      [FLOOR_CAMERA_ID]: null,
+    };
+    const errors: string[] = [];
+
+    async function startCamera(cameraId: string, deviceId: string, label: string) {
+      if (!deviceId) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+        if (cancelled) {
+          stopStream(stream);
+          return;
+        }
+        nextStreams[cameraId] = stream;
+      } catch {
+        errors.push(`Unable to start ${label}.`);
+      }
+    }
+
+    async function startSelectedCameras() {
+      await Promise.all([
+        startCamera(ENTRANCE_CAMERA_ID, selectedDeviceIds.entrance, "entrance camera"),
+        ...(useVisionBridgeForDining
+          ? []
+          : [startCamera(FLOOR_CAMERA_ID, selectedDeviceIds.dining, "dining camera")]),
+      ]);
+
+      if (cancelled) {
+        stopStream(nextStreams[ENTRANCE_CAMERA_ID]);
+        stopStream(nextStreams[FLOOR_CAMERA_ID]);
+        return;
+      }
+
+      stopStream(streamsRef.current[ENTRANCE_CAMERA_ID]);
+      stopStream(streamsRef.current[FLOOR_CAMERA_ID]);
+      if (useVisionBridgeForDining) {
+        nextStreams[FLOOR_CAMERA_ID] = null;
+      }
+      streamsRef.current = nextStreams;
+      setCameraStreams(nextStreams);
+      setCameraError(errors.length > 0 ? errors.join(" ") : null);
+    }
+
+    startSelectedCameras();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDeviceIds.dining, selectedDeviceIds.entrance, stopStream, useVisionBridgeForDining]);
+
+  useEffect(() => {
+    return () => {
+      stopStream(streamsRef.current[ENTRANCE_CAMERA_ID]);
+      stopStream(streamsRef.current[FLOOR_CAMERA_ID]);
+    };
+  }, [stopStream]);
+
+  useEffect(() => {
+    if (!useVisionBridgeForDining) {
+      stopVisionBridgeCameras();
+      return;
+    }
+    startVisionBridgeCameras();
+    return () => {
+      stopVisionBridgeCameras();
+    };
+  }, [startVisionBridgeCameras, stopVisionBridgeCameras, useVisionBridgeForDining]);
+
+  useEffect(() => {
+    const video = analysisEntranceVideoRef.current;
+    if (!video) return;
+    video.srcObject = cameraStreams[ENTRANCE_CAMERA_ID];
+    if (cameraStreams[ENTRANCE_CAMERA_ID]) video.play().catch(() => {});
+  }, [cameraStreams]);
+
+  useEffect(() => {
+    const video = analysisDiningVideoRef.current;
+    if (!video) return;
+    video.srcObject = cameraStreams[FLOOR_CAMERA_ID];
+    if (cameraStreams[FLOOR_CAMERA_ID]) video.play().catch(() => {});
+  }, [cameraStreams]);
+
+  const syncFloorOccupancy = useCallback(
+    async (boxes: number[][], frameWidth: number, frameHeight: number) => {
+      if (zones.length === 0 || frameWidth <= 0 || frameHeight <= 0) return;
+
+      const normalizedBoxes = boxes
+        .map((box) => {
+          const [x1, y1, x2, y2] = box;
+          const left = Math.max(0, Math.min(x1, x2)) / frameWidth;
+          const top = Math.max(0, Math.min(y1, y2)) / frameHeight;
+          const right = Math.min(frameWidth, Math.max(x1, x2)) / frameWidth;
+          const bottom = Math.min(frameHeight, Math.max(y1, y2)) / frameHeight;
+          const w = Math.max(0, right - left);
+          const h = Math.max(0, bottom - top);
+          return { x: left, y: top, w, h };
+        })
+        .filter((box) => box.w > 0 && box.h > 0);
+
+      const nextStable: { id: string; occupied: boolean }[] = [];
+      const nextPeopleAtTableById: Record<string, number> = {};
+
+      for (const zone of zones) {
+        const zoneRect = { x: zone.x, y: zone.y, w: zone.w, h: zone.h };
+        const currentAtTable = normalizedBoxes.filter((box) => {
+          const overlap = overlapArea(box, zoneRect);
+          // Occupied if any part of the person box intersects the table zone.
+          return overlap > 0;
+        }).length;
+        nextPeopleAtTableById[zone.id] = currentAtTable;
+
+        const state = zoneStateRef.current[zone.id] ?? {
+          occupied: zone.status === "occupied",
+          hasSeenMultiPerson: zone.status === "occupied",
+        };
+        if (currentAtTable > 1) {
+          state.hasSeenMultiPerson = true;
+        }
+        // Dwell activation gate:
+        // 1) First trigger requires >1 people in-zone.
+        // 2) After that has happened once for this table, any in-zone person keeps/restarts occupancy.
+        const rawOccupied = state.hasSeenMultiPerson && currentAtTable > 0;
+
+        if (rawOccupied) {
+          if (!state.occupied) {
+            state.occupied = true;
+          }
+        } else {
+          if (state.occupied) {
+            state.occupied = false;
+          }
+        }
+
+        zoneStateRef.current[zone.id] = state;
+        nextStable.push({ id: zone.id, occupied: state.occupied });
+      }
+
+      setPeopleAtTableById(nextPeopleAtTableById);
+
+      const signature = JSON.stringify(nextStable);
+      if (signature === lastPostedOccupancyRef.current) return;
+      lastPostedOccupancyRef.current = signature;
+
+      try {
+        const res = await fetch(`/api/cameras/${FLOOR_CAMERA_ID}/table-occupancy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nextStable),
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = (await res.json()) as { zones?: TableZone[] };
+        if (Array.isArray(data.zones)) {
+          setZones(data.zones);
+          setPeopleAtTableById((prev) => {
+            const next: Record<string, number> = {};
+            for (const zone of data.zones ?? []) {
+              next[zone.id] = prev[zone.id] ?? 0;
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to sync occupancy", err);
+      }
+    },
+    [zones]
+  );
+
+  useEffect(() => {
+    if (!useVisionBridgeForDining) return;
+    const diningBridgeId = visionBridgeCameraIdByRole.dining;
+    if (!diningBridgeId) return;
+
+    const poll = () => {
+      const t0 = performance.now();
+
+      fetch(`${VISION_SERVER}/cameras/${diningBridgeId}/state`, {
+          cache: "no-store",
+        })
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          return res.json() as Promise<VisionCameraState>;
+        })
+        .then((diningState) => {
+          setPeopleCountByCamera((prev) => ({
+            ...prev,
+            [FLOOR_CAMERA_ID]: diningState.people_count ?? 0,
+          }));
+          setVisionConnectedByCamera((prev) => ({
+            ...prev,
+            [FLOOR_CAMERA_ID]: true,
+          }));
+          setEstimatedFpsByCamera((prev) => {
+            const fps = Math.max(1, Math.round(1000 / Math.max(performance.now() - t0, 1)));
+            return {
+              ...prev,
+              [FLOOR_CAMERA_ID]: fps,
+            };
+          });
+
+          const boxes = Array.isArray(diningState.boxes) ? diningState.boxes : [];
+          const width = Number(diningState.frame_width) || 0;
+          const height = Number(diningState.frame_height) || 0;
+          if (width > 0 && height > 0) {
+            syncFloorOccupancy(boxes, width, height);
+          }
+        })
+        .catch(() =>
+          setVisionConnectedByCamera((prev) => ({
+            ...prev,
+            [FLOOR_CAMERA_ID]: false,
+          }))
+        );
+    };
+
+    poll();
+    const interval = setInterval(poll, 900);
+    return () => clearInterval(interval);
+  }, [syncFloorOccupancy, useVisionBridgeForDining, visionBridgeCameraIdByRole.dining]);
+
+  useEffect(() => {
+    const entranceStream = cameraStreams[ENTRANCE_CAMERA_ID];
+    if (!entranceStream) {
+      setDetectionSnapshotByCamera((prev) => ({
+        ...prev,
+        [ENTRANCE_CAMERA_ID]: { boxes: [], frameWidth: 0, frameHeight: 0 },
+      }));
+      return;
+    }
+
+    const video = analysisEntranceVideoRef.current;
+    const canvas = analysisEntranceCanvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!video || !canvas || !ctx) return;
 
     const detect = () => {
-      if (detectInflightRef.current || video.readyState < 2) return;
+      if (detectInflightRef.current[ENTRANCE_CAMERA_ID] || video.readyState < 2) return;
 
-      const W = 360;
-      const scale = W / (video.videoWidth || 1280);
-      const H = Math.round((video.videoHeight || 720) * scale);
-      canvas.width = W;
-      canvas.height = H;
-      ctx.drawImage(video, 0, 0, W, H);
+      const frameWidth = DETECT_FRAME_WIDTH;
+      const scale = frameWidth / (video.videoWidth || 1280);
+      const frameHeight = Math.round((video.videoHeight || 720) * scale);
+      canvas.width = frameWidth;
+      canvas.height = frameHeight;
+      ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
 
-      const image = canvas.toDataURL("image/jpeg", 0.72).split(",")[1];
+      const image = canvas.toDataURL("image/jpeg", DETECT_JPEG_QUALITY).split(",")[1];
       const t0 = performance.now();
-      detectInflightRef.current = true;
+      detectInflightRef.current[ENTRANCE_CAMERA_ID] = true;
 
       fetch(`${VISION_SERVER}/detect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image }),
+        body: JSON.stringify({
+          image,
+          include_annotated: false,
+          include_tracking: false,
+          imgsz: DETECT_MODEL_IMGSZ,
+        }),
       })
         .then((r) => {
           if (!r.ok) throw new Error();
           return r.json();
         })
-        .then((d: { count?: number }) => {
-          setPeopleCount(typeof d.count === "number" ? d.count : 0);
-          setVisionConnected(true);
-          setEstimatedFps(Math.max(1, Math.round(1000 / Math.max(performance.now() - t0, 1))));
+        .then(
+          (d: {
+            count?: number;
+            boxes?: number[][];
+            frame_width?: number;
+            frame_height?: number;
+          }) => {
+            const boxes = Array.isArray(d.boxes) ? d.boxes : [];
+            const responseFrameWidth =
+              typeof d.frame_width === "number" && d.frame_width > 0 ? d.frame_width : frameWidth;
+            const responseFrameHeight =
+              typeof d.frame_height === "number" && d.frame_height > 0 ? d.frame_height : frameHeight;
+            setPeopleCountByCamera((prev) => ({
+              ...prev,
+              [ENTRANCE_CAMERA_ID]: typeof d.count === "number" ? d.count : 0,
+            }));
+            setDetectionSnapshotByCamera((prev) => ({
+              ...prev,
+              [ENTRANCE_CAMERA_ID]: {
+                boxes,
+                frameWidth: responseFrameWidth,
+                frameHeight: responseFrameHeight,
+              },
+            }));
+            setVisionConnectedByCamera((prev) =>
+              prev[ENTRANCE_CAMERA_ID] ? prev : { ...prev, [ENTRANCE_CAMERA_ID]: true }
+            );
+
+            const measuredFps = Math.max(
+              1,
+              Math.round(1000 / Math.max(performance.now() - t0, 1))
+            );
+            const nowMs = performance.now();
+            if (nowMs - lastFpsUiUpdateRef.current[ENTRANCE_CAMERA_ID] >= 900) {
+              lastFpsUiUpdateRef.current[ENTRANCE_CAMERA_ID] = nowMs;
+              setEstimatedFpsByCamera((prev) =>
+                prev[ENTRANCE_CAMERA_ID] === measuredFps
+                  ? prev
+                  : { ...prev, [ENTRANCE_CAMERA_ID]: measuredFps }
+              );
+            }
+          }
+        )
+        .catch(() => {
+          setDetectionSnapshotByCamera((prev) => ({
+            ...prev,
+            [ENTRANCE_CAMERA_ID]: { boxes: [], frameWidth: 0, frameHeight: 0 },
+          }));
+          setVisionConnectedByCamera((prev) =>
+            prev[ENTRANCE_CAMERA_ID] ? { ...prev, [ENTRANCE_CAMERA_ID]: false } : prev
+          );
         })
-        .catch(() => setVisionConnected(false))
         .finally(() => {
-          detectInflightRef.current = false;
+          detectInflightRef.current[ENTRANCE_CAMERA_ID] = false;
         });
     };
 
     detect();
-    const interval = setInterval(detect, 900);
+    const interval = setInterval(detect, ENTRANCE_DETECT_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [stream]);
+  }, [cameraStreams]);
 
-  function persistCameras(cameras: VisionCamera[]) {
-    localStorage.setItem(
-      "vision-cameras",
-      JSON.stringify(cameras.map(({ name, zone, source }) => ({ name, zone, source })))
-    );
-  }
+  useEffect(() => {
+    if (useVisionBridgeForDining) return;
+    const diningStream = cameraStreams[FLOOR_CAMERA_ID];
+    if (!diningStream) return;
 
-  function handleAddCamera(cam: VisionCamera) {
-    setVisionCameras((prev) => {
-      const next = [...prev, cam];
-      persistCameras(next);
-      return next;
-    });
-  }
+    const video = analysisDiningVideoRef.current;
+    const canvas = analysisDiningCanvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!video || !canvas || !ctx) return;
 
-  async function handleRemoveCamera(id: string) {
+    const detect = () => {
+      if (detectInflightRef.current[FLOOR_CAMERA_ID] || video.readyState < 2) return;
+
+      const frameWidth = DETECT_FRAME_WIDTH;
+      const scale = frameWidth / (video.videoWidth || 1280);
+      const frameHeight = Math.round((video.videoHeight || 720) * scale);
+      canvas.width = frameWidth;
+      canvas.height = frameHeight;
+      ctx.drawImage(video, 0, 0, frameWidth, frameHeight);
+
+      const image = canvas.toDataURL("image/jpeg", DETECT_JPEG_QUALITY).split(",")[1];
+      const t0 = performance.now();
+      detectInflightRef.current[FLOOR_CAMERA_ID] = true;
+
+      fetch(`${VISION_SERVER}/detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image,
+          include_annotated: false,
+          include_tracking: false,
+          imgsz: DETECT_MODEL_IMGSZ,
+        }),
+      })
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then(
+          (d: {
+            count?: number;
+            boxes?: number[][];
+            frame_width?: number;
+            frame_height?: number;
+          }) => {
+            setPeopleCountByCamera((prev) => ({
+              ...prev,
+              [FLOOR_CAMERA_ID]: typeof d.count === "number" ? d.count : 0,
+            }));
+            setVisionConnectedByCamera((prev) =>
+              prev[FLOOR_CAMERA_ID] ? prev : { ...prev, [FLOOR_CAMERA_ID]: true }
+            );
+
+            const measuredFps = Math.max(
+              1,
+              Math.round(1000 / Math.max(performance.now() - t0, 1))
+            );
+            const nowMs = performance.now();
+            if (nowMs - lastFpsUiUpdateRef.current[FLOOR_CAMERA_ID] >= 900) {
+              lastFpsUiUpdateRef.current[FLOOR_CAMERA_ID] = nowMs;
+              setEstimatedFpsByCamera((prev) =>
+                prev[FLOOR_CAMERA_ID] === measuredFps
+                  ? prev
+                  : { ...prev, [FLOOR_CAMERA_ID]: measuredFps }
+              );
+            }
+
+            const boxes = Array.isArray(d.boxes) ? d.boxes : [];
+            const w = typeof d.frame_width === "number" ? d.frame_width : frameWidth;
+            const h = typeof d.frame_height === "number" ? d.frame_height : frameHeight;
+            syncFloorOccupancy(boxes, w, h);
+          }
+        )
+        .catch(() =>
+          setVisionConnectedByCamera((prev) =>
+            prev[FLOOR_CAMERA_ID] ? { ...prev, [FLOOR_CAMERA_ID]: false } : prev
+          )
+        )
+        .finally(() => {
+          detectInflightRef.current[FLOOR_CAMERA_ID] = false;
+        });
+    };
+
+    detect();
+    const interval = setInterval(detect, FLOOR_DETECT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [cameraStreams, syncFloorOccupancy, useVisionBridgeForDining]);
+
+  const saveZones = useCallback(async (draftZones: TableZone[]) => {
+    setSaveStatus("saving");
     try {
-      await fetch(`${VISION_SERVER}/cameras/${id}`, { method: "DELETE" });
-    } catch {
-      // best-effort
+      const payload = draftZones.map((zone) => ({
+        id: zone.id,
+        name: zone.name,
+        capacity: zone.capacity,
+        x: zone.x,
+        y: zone.y,
+        w: zone.w,
+        h: zone.h,
+        color: zone.color,
+      }));
+
+      const res = await fetch(`/api/cameras/${FLOOR_CAMERA_ID}/table-zones`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+
+      const data = (await res.json()) as { zones?: TableZone[] };
+      const savedZones = data.zones ?? [];
+      setZones(savedZones);
+      setPeopleAtTableById((prev) => {
+        const next: Record<string, number> = {};
+        for (const zone of savedZones) {
+          next[zone.id] = prev[zone.id] ?? 0;
+        }
+        return next;
+      });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 1800);
+    } catch (err) {
+      console.error("Failed to save zones", err);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 2200);
     }
-    setVisionCameras((prev) => {
-      const next = prev.filter((c) => c.id !== id);
-      persistCameras(next);
-      return next;
-    });
-  }
+  }, []);
 
-  function handleRenameZone(oldZone: string, newZone: string) {
-    const trimmed = newZone.trim();
-    if (!trimmed || trimmed === oldZone) { setEditingZone(null); return; }
-    const updated = visionCameras.map((c) => c.zone === oldZone ? { ...c, zone: trimmed } : c);
-    setVisionCameras(updated);
-    persistCameras(updated);
-    if (activeZone === oldZone) setActiveZone(trimmed);
-    setEditingZone(null);
-  }
+  const cameraOptionLabel = useCallback((device: MediaDeviceInfo, index: number) => {
+    const raw = device.label?.trim();
+    return raw.length > 0 ? raw : `Camera ${index + 1}`;
+  }, []);
 
-  async function handleDeleteZone(zone: string) {
-    const toRemove = visionCameras.filter((c) => c.zone === zone);
-    await Promise.allSettled(
-      toRemove.map((c) => fetch(`${VISION_SERVER}/cameras/${c.id}`, { method: "DELETE" }).catch(() => {}))
-    );
-    const remaining = visionCameras.filter((c) => c.zone !== zone);
-    setVisionCameras(remaining);
-    persistCameras(remaining);
-    if (activeZone === zone) setActiveZone("All");
-  }
-
-  const browserCameraData = useMemo(() =>
-    CAMERA_PRESETS.map((cam, i) => ({
-      ...cam,
-      status: (stream ? (visionConnected ? "online" : "degraded") : "offline") as CameraStatus,
-      peopleCount: Math.max(0, peopleCount + cam.peopleOffset),
-      fps: stream ? Math.max(4, estimatedFps - i) : 0,
-      latencyMs: stream ? 84 + i * 11 : 0,
-    })),
-    [stream, visionConnected, peopleCount, estimatedFps]
+  const hasIphoneCameraOption = useMemo(
+    () => videoInputs.some((device) => isIphoneCameraLabel(device.label)),
+    [isIphoneCameraLabel, videoInputs]
   );
 
-  // Combine all zones (presets + vision cameras)
-  const allZones = useMemo(() => {
-    const zones = new Set(["All", ...CAMERA_PRESETS.map((c) => c.zone), ...visionCameras.map((c) => c.zone)]);
-    return Array.from(zones);
-  }, [visionCameras]);
+  const entranceDeviceLabel = useMemo(() => {
+    const index = videoInputs.findIndex((device) => device.deviceId === selectedDeviceIds.entrance);
+    if (index < 0) return "Not selected";
+    return cameraOptionLabel(videoInputs[index], index);
+  }, [cameraOptionLabel, selectedDeviceIds.entrance, videoInputs]);
 
-  const filteredBrowser = useMemo(() =>
-    activeZone === "All" ? browserCameraData : browserCameraData.filter((c) => c.zone === activeZone),
-    [browserCameraData, activeZone]
+  const diningDeviceLabel = useMemo(() => {
+    const index = videoInputs.findIndex((device) => device.deviceId === selectedDeviceIds.dining);
+    if (index < 0) return "Not selected";
+    return cameraOptionLabel(videoInputs[index], index);
+  }, [cameraOptionLabel, selectedDeviceIds.dining, videoInputs]);
+
+  const diningVisionStreamUrl = useMemo(() => {
+    if (!useVisionBridgeForDining || !visionBridgeCameraIdByRole.dining) return null;
+    return `${VISION_SERVER}/stream/${visionBridgeCameraIdByRole.dining}`;
+  }, [useVisionBridgeForDining, visionBridgeCameraIdByRole.dining]);
+
+  const cameraData = useMemo(
+    () =>
+      CAMERA_PRESETS.map((cam, i) => ({
+        ...cam,
+        stream:
+          cam.id === FLOOR_CAMERA_ID && useVisionBridgeForDining
+            ? null
+            : cameraStreams[cam.id],
+        streamUrl:
+          cam.id === FLOOR_CAMERA_ID && useVisionBridgeForDining
+            ? diningVisionStreamUrl
+            : null,
+        visionConnected: visionConnectedByCamera[cam.id] ?? false,
+        status: ((cam.id === FLOOR_CAMERA_ID && useVisionBridgeForDining
+          ? Boolean(diningVisionStreamUrl)
+          : Boolean(cameraStreams[cam.id]))
+          ? visionConnectedByCamera[cam.id]
+            ? "online"
+            : "degraded"
+          : "offline") as CameraStatus,
+        peopleCount: Math.max(0, (peopleCountByCamera[cam.id] ?? 0) + cam.peopleOffset),
+        fps:
+          (cam.id === FLOOR_CAMERA_ID && useVisionBridgeForDining
+            ? Boolean(diningVisionStreamUrl)
+            : Boolean(cameraStreams[cam.id]))
+            ? Math.max(1, estimatedFpsByCamera[cam.id] ?? 0)
+            : 0,
+        latencyMs:
+          (cam.id === FLOOR_CAMERA_ID && useVisionBridgeForDining
+            ? Boolean(diningVisionStreamUrl)
+            : Boolean(cameraStreams[cam.id]))
+            ? 84 + i * 11
+            : 0,
+      })),
+    [
+      cameraStreams,
+      diningVisionStreamUrl,
+      estimatedFpsByCamera,
+      peopleCountByCamera,
+      useVisionBridgeForDining,
+      visionConnectedByCamera,
+    ]
   );
 
-  const filteredVision = useMemo(() =>
-    activeZone === "All" ? visionCameras : visionCameras.filter((c) => c.zone === activeZone),
-    [visionCameras, activeZone]
+  const visionConnected = cameraData.some((cam) => cam.visionConnected);
+  const occupiedCount = zones.filter((zone) => zone.status === "occupied").length;
+  const floorSummary =
+    zones.length > 0
+      ? `${occupiedCount}/${zones.length} tables occupied`
+      : "No table zones configured";
+
+  const filteredCameras = useMemo(
+    () =>
+      activeZone === "All"
+        ? cameraData
+        : cameraData.filter((c) => c.zone === activeZone),
+    [cameraData, activeZone]
   );
 
-  // Group all cameras by zone for display
   const grouped = useMemo(() => {
-    const groups: Record<string, { browser: typeof filteredBrowser; vision: VisionCamera[] }> = {};
+    if (activeZone !== "All") return { [activeZone]: filteredCameras };
+    return filteredCameras.reduce<Record<string, typeof filteredCameras>>(
+      (acc, cam) => {
+        (acc[cam.zone] ??= []).push(cam);
+        return acc;
+      },
+      {}
+    );
+  }, [filteredCameras, activeZone]);
 
-    for (const cam of filteredBrowser) {
-      if (!groups[cam.zone]) groups[cam.zone] = { browser: [], vision: [] };
-      groups[cam.zone].browser.push(cam);
-    }
-    for (const cam of filteredVision) {
-      if (!groups[cam.zone]) groups[cam.zone] = { browser: [], vision: [] };
-      groups[cam.zone].vision.push(cam);
-    }
-
-    return groups;
-  }, [filteredBrowser, filteredVision]);
-
-  const totalCameras = browserCameraData.length + visionCameras.length;
-  const onlineCount = browserCameraData.filter((c) => c.status === "online").length + visionCameras.length;
+  const onlineCount = cameraData.filter((c) => c.status === "online").length;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-zinc-100 via-zinc-50 to-white font-sans text-zinc-900 antialiased">
       <div className="mx-auto w-full max-w-[1400px] px-6 py-8 md:px-10">
-
-        {/* Header */}
-        <header className="flex items-center justify-between">
+        <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link
               href="/admin/entry"
@@ -619,7 +1841,9 @@ export default function BusinessDashboardPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
                 Restaurant X
               </p>
-              <h1 className="text-2xl font-semibold tracking-tight">Business Dashboard</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Business Dashboard
+              </h1>
             </div>
           </div>
 
@@ -631,104 +1855,161 @@ export default function BusinessDashboardPage() {
                   : "border-amber-200 bg-amber-50 text-amber-700"
               }`}
             >
-              <span className={`size-1.5 rounded-full ${visionConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
+              <span
+                className={`size-1.5 rounded-full ${
+                  visionConnected ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+              />
               {visionConnected ? "Vision Connected" : "Vision Offline"}
             </span>
             <span className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 shadow-sm">
-              {onlineCount}/{totalCameras} cameras online
+              {onlineCount}/{cameraData.length} cameras online
             </span>
           </div>
         </header>
 
-        {/* Zone filter tabs */}
         <nav className="mt-6 flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
-          {allZones.map((zone) => {
-            if (zone === "All") {
-              return (
-                <button
-                  key="All"
-                  type="button"
-                  onClick={() => setActiveZone("All")}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    activeZone === "All" ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                  }`}
-                >
-                  All
-                </button>
-              );
-            }
-
-            if (editingZone === zone) {
-              return (
-                <div key={zone} className="flex items-center gap-1 rounded-xl border border-zinc-300 bg-zinc-50 px-2 py-1">
-                  <input
-                    autoFocus
-                    value={editZoneValue}
-                    onChange={(e) => setEditZoneValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRenameZone(zone, editZoneValue);
-                      if (e.key === "Escape") setEditingZone(null);
-                    }}
-                    className="w-24 bg-transparent text-sm font-semibold text-zinc-900 outline-none"
-                  />
-                  <button type="button" onClick={() => handleRenameZone(zone, editZoneValue)} className="text-emerald-600 hover:text-emerald-700">
-                    <Check className="size-3.5" />
-                  </button>
-                  <button type="button" onClick={() => setEditingZone(null)} className="text-zinc-400 hover:text-zinc-600">
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              );
-            }
-
-            const isStatic = zone === "Entrance";
-            return (
-              <div key={zone} className="group flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => setActiveZone(zone)}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    activeZone === zone ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                  }`}
-                >
-                  {zone}
-                </button>
-                {!isStatic && (
-                  <div className="hidden group-hover:flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => { setEditingZone(zone); setEditZoneValue(zone); }}
-                      className="rounded p-1 text-zinc-400 hover:text-zinc-700"
-                      title="Rename zone"
-                    >
-                      <Pencil className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteZone(zone)}
-                      className="rounded p-1 text-zinc-400 hover:text-red-500"
-                      title="Delete zone and its cameras"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {ZONES.map((zone) => (
+            <button
+              key={zone}
+              type="button"
+              onClick={() => setActiveZone(zone)}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                activeZone === zone
+                  ? "bg-black text-white shadow-sm"
+                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+              }`}
+            >
+              {zone}
+            </button>
+          ))}
 
           <div className="ml-auto flex items-center gap-2">
+            <div className="hidden rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] text-zinc-600 md:block">
+              Entrance: {entranceDeviceLabel}
+            </div>
+            <div className="hidden rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] text-zinc-600 md:block">
+              Dining: {useVisionBridgeForDining ? `Vision source ${diningSourceIndex}` : diningDeviceLabel}
+            </div>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 rounded-xl text-xs gap-1.5"
-              onClick={() => setShowAddModal(true)}
+              className="h-8 rounded-xl text-xs"
+              onClick={() => setZoneEditorOpen(true)}
             >
-              <Plus className="size-3.5" />
-              Add Camera
+              Configure Floor Tables
             </Button>
           </div>
         </nav>
+
+        {videoInputs.length > 0 && (
+          <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Camera Assignment
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => refreshVideoInputs(false)}
+                className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+              >
+                Refresh Camera List
+              </button>
+              <button
+                type="button"
+                onClick={() => setUseVisionBridgeForDining((prev) => !prev)}
+                className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium transition ${
+                  useVisionBridgeForDining
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                }`}
+              >
+                {useVisionBridgeForDining ? "Dining via Vision Bridge: ON" : "Dining via Vision Bridge: OFF"}
+              </button>
+              {useVisionBridgeForDining && (
+                <>
+                  <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1">
+                    <span className="text-[11px] text-zinc-600">Dining source index</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={8}
+                      value={diningSourceIndex}
+                      onChange={(e) => setDiningSourceIndex(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-12 rounded border border-zinc-300 px-1 py-0.5 text-xs text-zinc-800 outline-none focus:border-zinc-500"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={startVisionBridgeCameras}
+                    className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+                  >
+                    Restart Vision Bridge
+                  </button>
+                </>
+              )}
+              {!hasIphoneCameraOption && (
+                <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700">
+                  iPhone/Continuity camera not detected yet.
+                </span>
+              )}
+              {selectedDeviceIds.entrance === selectedDeviceIds.dining && videoInputs.length > 1 && (
+                <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700">
+                  Entrance and dining are set to the same device.
+                </span>
+              )}
+            </div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-zinc-600">Entrance Camera (local)</span>
+                <select
+                  value={selectedDeviceIds.entrance}
+                  onChange={(e) =>
+                    setSelectedDeviceIds((prev) => {
+                      const entrance = e.target.value;
+                      if (entrance !== prev.dining || videoInputs.length <= 1) {
+                        return { ...prev, entrance };
+                      }
+                      const alt = videoInputs.find((device) => device.deviceId !== entrance);
+                      return { entrance, dining: alt?.deviceId ?? prev.dining };
+                    })
+                  }
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-zinc-400"
+                >
+                  {videoInputs.map((device, index) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {cameraOptionLabel(device, index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-zinc-600">Dining Camera (iPhone Continuity)</span>
+                <select
+                  value={selectedDeviceIds.dining}
+                  disabled={useVisionBridgeForDining}
+                  onChange={(e) =>
+                    setSelectedDeviceIds((prev) => {
+                      const dining = e.target.value;
+                      if (dining !== prev.entrance || videoInputs.length <= 1) {
+                        return { ...prev, dining };
+                      }
+                      const alt = videoInputs.find((device) => device.deviceId !== dining);
+                      return { entrance: alt?.deviceId ?? prev.entrance, dining };
+                    })
+                  }
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                >
+                  {videoInputs.map((device, index) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {cameraOptionLabel(device, index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+        )}
 
         {cameraError && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -736,38 +2017,104 @@ export default function BusinessDashboardPage() {
           </div>
         )}
 
-        {/* Camera grid grouped by zone */}
+        {zoneLoadError && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {zoneLoadError}
+          </div>
+        )}
+
+        <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                Floor Occupancy
+              </p>
+              <p className="mt-1 text-sm font-medium text-zinc-700">{floorSummary}</p>
+            </div>
+            <Button
+              size="sm"
+              className="h-8 rounded-xl bg-black px-4 text-xs font-semibold text-white hover:bg-zinc-800"
+              onClick={() => setZoneEditorOpen(true)}
+            >
+              Manage Zones
+            </Button>
+          </div>
+
+          {zones.length > 0 && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {zones.map((zone) => {
+                const currentAtTable = peopleAtTableById[zone.id] ?? 0;
+                const isOccupied = zone.status === "occupied";
+                return (
+                  <div
+                    key={zone.id}
+                    className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-zinc-800">{zone.name}</p>
+                      <span
+                        className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                          isOccupied
+                            ? "bg-red-100 text-red-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {isOccupied ? "occupied" : "open"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-zinc-700">
+                      {isOccupied
+                        ? `Table occupied, ${currentAtTable}/${zone.capacity}`
+                        : `Table open, ${currentAtTable}/${zone.capacity}`}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Dwell: {currentAtTable > 0 && isOccupied ? formatDwell(zone.seated_at) : "00:00"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
         <div className="mt-6 space-y-8">
-          {Object.entries(grouped).map(([zone, { browser, vision }]) => (
+          {Object.entries(grouped).map(([zone, cameras]) => (
             <section key={zone}>
               <div className="mb-4 flex items-center gap-3">
                 <h2 className="text-base font-semibold text-zinc-900">{zone}</h2>
                 <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500">
-                  {browser.length + vision.length} camera{browser.length + vision.length !== 1 ? "s" : ""}
+                  {cameras.length} camera{cameras.length !== 1 ? "s" : ""}
                 </span>
                 <div className="flex-1 border-t border-zinc-200" />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {browser.map((cam) => (
-                  <BrowserCameraTile
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                {cameras.map((cam) => (
+                  <CameraTile
                     key={cam.id}
                     camera={cam}
-                    stream={stream}
+                    stream={cam.stream}
+                    streamUrl={cam.streamUrl}
                     status={cam.status}
                     peopleCount={cam.peopleCount}
                     fps={cam.fps}
                     latencyMs={cam.latencyMs}
-                    visionConnected={visionConnected}
+                    visionConnected={cam.visionConnected}
                     timestamp={timestamp}
-                  />
-                ))}
-                {vision.map((cam) => (
-                  <VisionCameraTile
-                    key={cam.id}
-                    camera={cam}
-                    onRemove={handleRemoveCamera}
-                    timestamp={timestamp}
+                    tableSummary={cam.id === FLOOR_CAMERA_ID ? floorSummary : undefined}
+                    tableZones={cam.id === FLOOR_CAMERA_ID ? zones : undefined}
+                    peopleAtTableById={cam.id === FLOOR_CAMERA_ID ? peopleAtTableById : undefined}
+                    detectionSnapshot={
+                      cam.id === ENTRANCE_CAMERA_ID
+                        ? detectionSnapshotByCamera[ENTRANCE_CAMERA_ID]
+                        : undefined
+                    }
+                    onOpenView={cam.id === FLOOR_CAMERA_ID ? () => setZoneEditorOpen(true) : undefined}
+                    onConfigureTables={
+                      cam.id === FLOOR_CAMERA_ID
+                        ? () => setZoneEditorOpen(true)
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -775,7 +2122,7 @@ export default function BusinessDashboardPage() {
           ))}
         </div>
 
-        {filteredBrowser.length === 0 && filteredVision.length === 0 && (
+        {filteredCameras.length === 0 && (
           <div className="mt-12 flex flex-col items-center gap-3 text-zinc-400">
             <Camera className="size-12" />
             <p className="text-sm font-medium">No cameras in this zone</p>
@@ -783,15 +2130,23 @@ export default function BusinessDashboardPage() {
         )}
       </div>
 
-      <video ref={analysisVideoRef} muted playsInline className="hidden" />
-      <canvas ref={analysisCanvasRef} className="hidden" />
-
-      {showAddModal && (
-        <AddCameraModal
-          onClose={() => setShowAddModal(false)}
-          onAdd={handleAddCamera}
+      {zoneEditorOpen && (
+        <ZoneEditorModal
+          stream={useVisionBridgeForDining ? null : cameraStreams[FLOOR_CAMERA_ID]}
+          streamUrl={useVisionBridgeForDining ? diningVisionStreamUrl : null}
+          cameraName="Floor Camera"
+          zones={zones}
+          peopleAtTableById={peopleAtTableById}
+          onClose={() => setZoneEditorOpen(false)}
+          onSave={saveZones}
+          saveStatus={saveStatus}
         />
       )}
+
+      <video ref={analysisEntranceVideoRef} muted playsInline className="hidden" />
+      <canvas ref={analysisEntranceCanvasRef} className="hidden" />
+      <video ref={analysisDiningVideoRef} muted playsInline className="hidden" />
+      <canvas ref={analysisDiningCanvasRef} className="hidden" />
     </main>
   );
 }

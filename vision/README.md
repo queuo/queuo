@@ -172,3 +172,31 @@ Install deps once
 python3 -m venv vision/.venv
 source vision/.venv/bin/activate
 pip install -r vision/requirements.txt
+
+## Dashboard Integration (Admin Zone Setup)
+
+The business dashboard now persists table zones/capacity in Supabase and uses
+`/detect` bounding boxes to infer occupied/free tables + dwell time.
+
+1. Run SQL setup once:
+```bash
+# Run in Supabase SQL Editor
+docs/sql/table_zones.sql
+```
+
+2. API routes used by the dashboard:
+- `GET /api/cameras/CAM-FLOOR/table-zones` - load table zones
+- `PUT /api/cameras/CAM-FLOOR/table-zones` - save table zones + capacities
+- `POST /api/cameras/CAM-FLOOR/table-occupancy` - update occupied/free + `seated_at`
+
+3. `/detect` response now includes:
+- `count`
+- `annotated_frame`
+- `boxes` (`[[x1,y1,x2,y2], ...]`)
+- `frame_width`, `frame_height`
+
+4. Vision camera bridge endpoints (fallback when browser cannot enumerate iPhone camera):
+- `POST /cameras` with `{ source, name, zone }` to start a camera stream
+- `GET /stream/{camera_id}` for MJPEG feed
+- `GET /cameras/{camera_id}/state` for latest `{ people_count, boxes, frame_width, frame_height }`
+- `DELETE /cameras/{camera_id}` to stop stream

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n \"next,vision\" -c \"blue,green\" \"next dev\" \"uvicorn vision.server:app --port 8000 --reload\"",
+    "dev": "concurrently -n \"next,vision\" -c \"blue,green\" \"next dev\" \"vision/.venv/bin/python -m uvicorn vision.server:app --port 8000 --reload\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
