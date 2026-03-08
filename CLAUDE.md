@@ -22,6 +22,15 @@ Tests use `npx tsx --env-file=.env` — ensure a `.env` file exists with the req
 
 The product brand name is currently **PlaceholderName** across the UI (`app/page.tsx`, `app/layout.tsx`). Update all instances when a final name is decided.
 
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — Full architecture reference: tech stack table, high-level system diagram (ASCII), kiosk voice flow, business dashboard data flow, waitlist algorithm, database schema, auth flow, and complete file map. Keep this updated when adding features.
+- [docs/architecture-diagram.md](docs/architecture-diagram.md) — Mermaid whiteboard diagram of the high-level system architecture. Renders in VS Code (Markdown Preview Mermaid Support extension), GitHub, or mermaid.live. References `architecture.md` for detail.
+- [docs/voice-agentic-kiosk.md](docs/voice-agentic-kiosk.md) — Design doc for the voice-agentic kiosk flow: STT → Gemini NLU → TTS state machine, component responsibilities, UX states, conversation bubble layout, fallback behaviour.
+- [docs/Customer_Kiosk_Flow.md](docs/Customer_Kiosk_Flow.md) — Original kiosk screen flow wireframes and route map.
+- [docs/sql/table_zones.sql](docs/sql/table_zones.sql) — Migration: `table_zones` table.
+- [docs/sql/waitlist.sql](docs/sql/waitlist.sql) — Migration: `waitlist` table.
+
 ## Project: Reception Bot (Primary — Hack-Attack 2026)
 
 A computer-vision-powered reception system for restaurants. An iPhone camera + YOLO detects arriving guests and their party size. A kiosk screen then guides them through seating via simple button taps — no human host needed. Built for Hack-Attack 2026 "Bettering Businesses" theme.
