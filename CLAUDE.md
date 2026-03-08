@@ -9,7 +9,7 @@ Whenever a new feature, service, route, or architectural change is added to this
 ## Commands
 
 ```bash
-npm run dev          # Start development server on localhost:3000
+npm run dev          # Start Next.js + vision FastAPI server (concurrently)
 npm run build        # Production build
 npm run lint         # Run ESLint
 npm run test:supabase  # Test Supabase connection (requires .env)
@@ -30,6 +30,32 @@ A computer-vision-powered reception system for restaurants. An iPhone camera + Y
 
 - **Business Side (Staff Dashboard)** — Staff configure table zones and monitor floor state in real time
 - **Consumer Side (Kiosk)** — Guest-facing screen at the entrance; shows greeting and guides seating via tappable buttons
+
+### Recent Implemented Changes (March 2026)
+
+- Admin table-zone setup is now integrated directly in the business dashboard modal (draw, edit, delete, save).
+- Table zone records are persisted in Supabase table `table_zones` with normalized bounds and per-table capacity.
+- Occupancy + dwell are driven from live person detections intersecting configured table zones:
+  - Dwell activation gate: table must detect `>1` people at least once, then occupancy is maintained while `>0` remain.
+  - Dwell display resets to `00:00` immediately when zone count reaches `0`.
+- Dining camera tiles render zone overlays with status colors:
+  - Green = open
+  - Red = occupied
+  - Label shows `current_detected/capacity` and dwell
+- Zone editor UX updates:
+  - Saved zones have edit + delete controls
+  - Active edit zone is visually highlighted
+  - Clicking outside the modal saves changes and closes
+  - Camera feed framing is consistent between dashboard tile and zone editor
+- Camera routing for demo:
+  - Entrance defaults to local Mac camera
+  - Dining defaults to Vision Bridge source index `0` (iPhone Continuity camera on macOS)
+- Entrance feed now shows both:
+  - live people counter
+  - live bbox overlays for detected people
+- Vision performance improvements:
+  - `/detect` supports lightweight mode (`include_annotated`, `include_tracking`, `imgsz`)
+  - Dashboard polling uses lightweight detection payloads and lower-cost frame settings for better responsiveness
 
 ### How It Works (end-to-end)
 
@@ -95,15 +121,17 @@ The `useTextToSpeech` hook (in `lib/useTextToSpeech.ts`) is configured with a sp
       - [app/admin/customer/all-full/page.tsx](app/admin/customer/all-full/page.tsx) — Prompted when all tables are full; guest enters email to join waitlist
     - [app/admin/entry/page.tsx](app/admin/entry/page.tsx) — Post-login landing page; animated typing sequence ("Welcome, Restaurant X." → "How would you like to proceed?") followed by two buttons: **Customer View** → `/admin/customer/welcome-page` and **Business View** → `/admin/business/dashboard`
     - [app/admin/business/](app/admin/business/) — Staff-facing business management:
-      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Camera monitoring dashboard. Two camera types coexist:
-        - **Browser camera (CAM-01)**: auto-starts via `getUserMedia` on page load; polls `POST /detect` every 900ms for people count; clicking the tile navigates to the zone editor.
-        - **Vision server cameras**: added manually via "Add Camera" button → modal (name, zone, free-text, source index; `0` = iPhone via Continuity Camera). Each camera POSTs to `POST /cameras` on the vision server, then streams MJPEG from `GET /stream/{camera_id}`. People count polled from `GET /cameras/{camera_id}` every 1.5s. Remove button (×) calls `DELETE /cameras/{camera_id}`.
-        - **Zone tabs**: dynamically derived from all camera zones. Non-"Entrance" zones show pencil (inline rename) and trash (delete zone + its cameras) icons on hover. Rename updates all cameras in that zone; delete stops them on the server.
-        - **Persistence**: vision server camera configs (`name`, `zone`, `source`) saved to `localStorage` key `vision-cameras`; re-registered with the vision server on page mount.
-        - **Vision health**: pings `GET /health` every 5s for the "Vision Connected / Offline" badge.
-      - [app/admin/business/camera/[cameraId]/page.tsx](app/admin/business/camera/[cameraId]/page.tsx) — Full-screen camera viewer + table zone editor. Left: live video feed with canvas overlay for drawing zones (click & drag). Right sidebar: zone list with editable name and seat capacity per zone, confirm/cancel flow for new zones. Zones persisted to `localStorage` keyed by `camera-zones-${cameraId}`. "Save to Database" upserts name + capacity to Supabase `tables` via `POST /api/tables`.
+      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Primary staff dashboard with two camera roles:
+        - **Entrance camera (`CAM-ENTRANCE`)**: local browser camera via `getUserMedia`; polls `POST /detect`; renders people counter + live person bboxes.
+        - **Dining camera (`CAM-FLOOR`)**: defaults to Vision Bridge stream (`source=0`); can use browser camera fallback; drives table occupancy/dwell by intersecting bboxes with configured zones.
+        - **Table zone modal**: draw boxes, set table name/capacity, edit by dragging, delete, save to Supabase.
+        - **Occupancy overlays**: per-zone red/green visuals + `current/capacity` + dwell shown in live feed and summary cards.
+        - **Open behavior**: clicking the dining camera feed opens the same zone-config modal.
+      - [app/admin/business/camera/[cameraId]/page.tsx](app/admin/business/camera/[cameraId]/page.tsx) — Legacy full-screen camera viewer/editor route (dashboard modal is now the main setup path).
 - **[app/api/](app/api/)** — Next.js API routes:
   - [app/api/tables/route.ts](app/api/tables/route.ts) — `POST /api/tables`; accepts an array of `{ name, capacity, status }` rows and upserts them into the `tables` table using the server-side secret key (bypasses RLS). Used by the camera zone editor.
+  - [app/api/cameras/[cameraId]/table-zones/route.ts](app/api/cameras/[cameraId]/table-zones/route.ts) — `GET`/`PUT` table-zone persistence for dashboard (validates bounds/capacity, upserts, deletes removed zones).
+  - [app/api/cameras/[cameraId]/table-occupancy/route.ts](app/api/cameras/[cameraId]/table-occupancy/route.ts) — `POST` occupancy transitions (`free`/`occupied`) and `seated_at` updates per zone.
 - **[lib/](lib/)** — Shared service clients:
   - [lib/supabase.ts](lib/supabase.ts) — Server-side Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); bypasses RLS; use in API routes and server actions only
   - [lib/supabase-browser.ts](lib/supabase-browser.ts) — Browser-side Supabase client (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`); uses `@supabase/ssr` `createBrowserClient`; stores session in cookies for proxy access
@@ -116,6 +144,7 @@ The `useTextToSpeech` hook (in `lib/useTextToSpeech.ts`) is configured with a sp
 
 ### Supabase Schema (expected)
 - `tables` — staff-configured table zones: `id`, `name`, `capacity`, `status` (`free`/`occupied`/`reserved`), `seated_at` (timestamp for dwell tracking)
+- `table_zones` — dashboard-configured floor zones: `id`, `camera_id`, `name`, `capacity`, normalized bounds (`x`,`y`,`w`,`h`), `status`, `seated_at`
 - `reservations` — `id`, `guest_name`, `party_size`, `reserved_for` (timestamp), `table_id`, `status`
 - `waitlist` — `id`, `guest_name`, `party_size`, `email`, `joined_at`, `notified_at`
 
@@ -131,6 +160,13 @@ create table public.tables (
 );
 ```
 
+#### Migration: create `table_zones`
+Run:
+```sql
+-- Supabase SQL Editor
+docs/sql/table_zones.sql
+```
+
 ---
 
 ## Vision Microservice (`vision/`)
@@ -143,11 +179,12 @@ A self-contained Python package for real-time person detection, tracking, and ta
    ```bash
    uvicorn vision.server:app --port 8000 --reload
    ```
-   - `POST /detect` — accepts `{ image: "<base64 JPEG>" }`, returns `{ count: int, annotated_frame: "<base64 JPEG>" }`
+   - `POST /detect` — accepts `{ image, include_annotated?, include_tracking?, imgsz? }`; returns `{ count, annotated_frame, boxes, frame_width, frame_height }`
    - `GET /health` — returns `{ status: "ok" }`
    - `POST /cameras` — starts a background MJPEG capture thread for a given source index; accepts `{ source: int, name: str, zone: str }`; returns `{ camera_id, source, name, zone, people_count }`
    - `GET /cameras` — list all active camera streams
    - `GET /cameras/{camera_id}` — get camera info + live `people_count`
+   - `GET /cameras/{camera_id}/state` — get camera info + live `people_count`, `boxes`, `frame_width`, `frame_height`
    - `DELETE /cameras/{camera_id}` — stop a camera (sets `running=False`; thread releases `VideoCapture` itself to avoid macOS AVFoundation crash)
    - `GET /stream/{camera_id}` — MJPEG stream (`multipart/x-mixed-replace`); browser displays in `<img>` tag; YOLO bounding boxes drawn on each frame
    - Camera source `0` = iPhone via Continuity Camera on macOS
@@ -285,8 +322,8 @@ npm run dev
 - `@supabase/ssr` — cookie-based session management for Next.js proxy auth
 - Resend (waitlist-ready + reservation confirmation emails)
 - Python + YOLO (Ultralytics) + ByteTrack — vision microservice; detects party size and table occupancy
-- FastAPI + Uvicorn — serves `POST /detect` consumed by `KioskFrontCamera.tsx`; browser captures frames and POSTs base64 JPEG every 300ms
-- WebRTC — planned iPhone camera-to-Python transport (not yet wired; current kiosk uses browser `getUserMedia` → HTTP polling)
+- FastAPI + Uvicorn — serves `POST /detect` (supports lightweight/no-annotation mode) and camera-bridge MJPEG/state endpoints used by dashboard + kiosk
+- Browser capture + Vision Bridge — current implementation uses browser `getUserMedia` polling and FastAPI camera bridge (`/cameras`, `/stream/{id}`, `/cameras/{id}/state`)
 
 ## Auth
 
