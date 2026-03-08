@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useTextToSpeech } from "@/lib/useTextToSpeech";
 
@@ -197,44 +198,56 @@ export default function WelcomePage() {
       <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 md:px-10">
         {/* Header */}
         <header className="mb-20 flex items-center justify-between">
-          <p className="text-2xl font-semibold tracking-tight">Restaurant X</p>
+          <Image
+            src="/queueo.png"
+            alt="Queueo"
+            width={240}
+            height={64}
+            className="h-14 w-auto"
+            priority
+          />
           <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
             Kiosk Check-in
           </p>
         </header>
 
         {/* Conversation Container */}
-        <section className="flex flex-col items-center justify-center min-h-[500px] relative">
-          <div className="w-full max-w-2xl space-y-6 relative h-[120px]" style={{ perspective: "1000px" }}>
-            {messages.length > 0 && (
-              <div className="relative h-full overflow-hidden">
-                <div
-                  className="absolute w-full transition-all duration-1000"
-                  style={{
-                    transform: `translateY(-${(messages.length - 1) * 120}px) rotateX(0deg)`,
-                    opacity: 1,
-                    transitionTimingFunction: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
-                  }}
-                >
-                  {messages.map((message, index) => (
-                    <div key={index} className="h-[120px] flex items-start pb-6 message-item">
-                      <h1 className={`text-3xl md:text-5xl font-bold text-black leading-tight tracking-tight min-h-[80px] ${
-                        index === messages.length - 1 && message.displayedText.length > 0 ? 'animate-zoom-in' : ''
-                      }`}>
-                        {index === messages.length - 1 ? message.displayedText : message.text}
-                        {index === messages.length - 1 && !message.isComplete && (
-                          <span className="animate-pulse">|</span>
-                        )}
-                      </h1>
-                    </div>
-                  ))}
+        <section className="mx-auto grid min-h-[560px] w-full max-w-2xl content-center gap-2 -translate-y-4">
+          <div className="flex items-center justify-center">
+            <div className="relative h-[120px] w-full space-y-6" style={{ perspective: "1000px" }}>
+              {messages.length > 0 && (
+                <div className="relative h-full overflow-hidden">
+                  <div
+                    className="absolute w-full transition-all duration-1000"
+                    style={{
+                      transform: `translateY(-${(messages.length - 1) * 120}px) rotateX(0deg)`,
+                      opacity: 1,
+                      transitionTimingFunction: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+                    }}
+                  >
+                    {messages.map((message, index) => (
+                      <div key={index} className="message-item flex h-[120px] items-end pb-0">
+                        <h1
+                          className={`min-h-[80px] text-3xl font-bold leading-tight tracking-tight text-black md:text-5xl ${
+                            index === messages.length - 1 && message.displayedText.length > 0 ? "animate-zoom-in" : ""
+                          }`}
+                        >
+                          {index === messages.length - 1 ? message.displayedText : message.text}
+                          {index === messages.length - 1 && !message.isComplete && (
+                            <span className="animate-pulse">|</span>
+                          )}
+                        </h1>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
-          {showPartyInput && (
-            <div className="mt-12 flex flex-col gap-4 animate-fade-in">
+          <div className="flex items-center justify-center">
+            {showPartyInput && (
+              <div className="flex flex-col gap-4 animate-fade-in">
               <div className="flex gap-4">
                 <input
                   type="number"
@@ -253,11 +266,11 @@ export default function WelcomePage() {
                   Confirm
                 </button>
               </div>
-            </div>
-          )}
+              </div>
+            )}
 
-          {showTimer && (
-            <div className="mt-1 flex flex-col items-center gap-16">
+            {showTimer && (
+              <div className="flex items-center gap-4">
               {/* No Button */}
               <button
                 onClick={handlePartySizeWrong}
@@ -267,7 +280,7 @@ export default function WelcomePage() {
               </button>
 
               {/* Circular Timer */}
-              <div className="relative w-16 h-16 flex items-center justify-center opacity-50">
+              <div className="relative h-12 w-12 flex items-center justify-center opacity-50">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                   {/* Background circle */}
                   <circle
@@ -292,11 +305,11 @@ export default function WelcomePage() {
                   />
                 </svg>
               </div>
-            </div>
-          )}
+              </div>
+            )}
 
-          {showReservationTimer && (
-            <div className="mt-1 flex flex-col items-center gap-16">
+            {showReservationTimer && (
+              <div className="flex items-center gap-4">
               {/* Yes Button */}
               <Link
                 href="/admin/customer/confirm-reservation"
@@ -306,7 +319,7 @@ export default function WelcomePage() {
               </Link>
 
               {/* Circular Timer */}
-              <div className="relative w-16 h-16 flex items-center justify-center opacity-50">
+              <div className="relative h-12 w-12 flex items-center justify-center opacity-50">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                   {/* Background circle */}
                   <circle
@@ -331,11 +344,11 @@ export default function WelcomePage() {
                   />
                 </svg>
               </div>
-            </div>
-          )}
+              </div>
+            )}
 
-          {showButtons && (
-            <div className="mt-12 flex flex-col gap-4 sm:flex-row animate-fade-in">
+            {showButtons && (
+              <div className="flex flex-col gap-4 animate-fade-in sm:flex-row">
               <Link
                 href="/admin/customer/confirm-reservation"
                 className="flex-1 rounded-lg bg-black px-8 py-5 text-center text-base font-semibold text-white transition hover:bg-zinc-800 active:bg-black"
@@ -348,8 +361,9 @@ export default function WelcomePage() {
               >
                 No reservation
               </Link>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </section>
       </div>
 

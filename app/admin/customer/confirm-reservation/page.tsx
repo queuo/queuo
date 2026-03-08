@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function ConfirmReservationPage() {
   const [email, setEmail] = useState("");
@@ -10,7 +11,14 @@ export default function ConfirmReservationPage() {
     <main className="min-h-screen bg-zinc-50 font-sans antialiased text-black">
       <div className="mx-auto w-full max-w-7xl px-6 py-10 md:px-10">
         <header className="mb-12 flex items-center justify-between">
-          <p className="text-2xl font-semibold tracking-tight">Restaurant X</p>
+          <Image
+            src="/queueo.png"
+            alt="Queueo"
+            width={240}
+            height={64}
+            className="h-14 w-auto"
+            priority
+          />
           <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">Reservation</p>
         </header>
 

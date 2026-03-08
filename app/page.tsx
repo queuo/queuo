@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -6,14 +7,15 @@ export default function Home() {
 
       {/* Navbar */}
       <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white/90 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          {/* Logo placeholder */}
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-black">
-              <span className="text-sm font-bold text-white">+</span>
-            </div>
-            <span className="text-lg font-semibold tracking-tight text-black">PlaceholderName</span>
-          </div>
+        <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-6">
+          {/* Logo */}
+          <Image
+            src="/queueo.png"
+            alt="Queueo Logo"
+            height={80}
+            width={80}
+            className="h-20 w-auto"
+          />
 
           {/* Actions */}
           <div className="flex items-center gap-2">
@@ -252,14 +254,15 @@ export default function Home() {
           </div>
 
           <div className="mt-12 flex items-center justify-between border-t border-zinc-800 pt-8">
-            <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded bg-white">
-                <span className="text-xs font-bold text-black">+</span>
-              </div>
-              <span className="text-sm font-semibold text-white">PlaceholderName</span>
-            </div>
+            <Image
+              src="/queueo.png"
+              alt="Queueo Logo"
+              height={60}
+              width={60}
+              className="h-14 w-auto"
+            />
             <p className="text-sm text-zinc-500">
-              © 2026 PlaceholderName. All rights reserved.
+              © 2026 Queueo. All rights reserved.
             </p>
           </div>
         </div>
