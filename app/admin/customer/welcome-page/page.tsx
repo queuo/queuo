@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { Mic } from "lucide-react";
 import { useTextToSpeech } from "@/lib/useTextToSpeech";
 import { useSpeechToText } from "@/lib/useSpeechToText";
 import { useGeminiAgent, GeminiIntent } from "@/lib/useGeminiAgent";
@@ -25,11 +26,14 @@ interface ChatMessage {
   displayedText: string;
   isComplete: boolean;
   isInterim?: boolean;
+  createdAt?: number;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const DEFAULT_PARTY_SIZE = 3;
+const AI_TRANSITION_DELAY_MS = 220;
+const AI_TYPING_TICK_MS = 46;
 
 export default function WelcomePage() {
   // Core state
@@ -39,9 +43,11 @@ export default function WelcomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [showFallbackChips, setShowFallbackChips] = useState(false);
   const [collectedEmail, setCollectedEmail] = useState<string>("");
+  const [assistantLift, setAssistantLift] = useState(0);
 
   // Refs for breaking circular callback dependencies
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const assistantTextRef = useRef<HTMLParagraphElement>(null);
   const hasStarted = useRef(false);
   const processingRef = useRef(false);
   const startListeningRef = useRef<() => void>(() => {});
@@ -70,7 +76,7 @@ export default function WelcomePage() {
   const addAIMessage = useCallback((text: string) => {
     setMessages((prev) => [
       ...prev,
-      { role: "ai", text, displayedText: "", isComplete: false },
+      { role: "ai", text, displayedText: "", isComplete: false, createdAt: Date.now() },
     ]);
   }, []);
 
@@ -176,7 +182,7 @@ export default function WelcomePage() {
     setKioskState("greeting");
     setShowFallbackChips(false);
     const greeting = `Welcome! We detected a party of ${DEFAULT_PARTY_SIZE}. Is that correct?`;
-    setMessages([{ role: "ai", text: greeting, displayedText: "", isComplete: false }]);
+    setMessages([{ role: "ai", text: greeting, displayedText: "", isComplete: false, createdAt: Date.now() }]);
     speakAndListen(greeting);
   }, [resetHistory, speakAndListen]);
 
@@ -307,6 +313,11 @@ export default function WelcomePage() {
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "ai" || lastMsg.isComplete) return;
 
+    const elapsed = lastMsg.createdAt ? Date.now() - lastMsg.createdAt : AI_TRANSITION_DELAY_MS;
+    const isFirstChar = lastMsg.displayedText.length === 0;
+    const waitForTransition = isFirstChar ? Math.max(0, AI_TRANSITION_DELAY_MS - elapsed) : 0;
+    const tickDelay = waitForTransition > 0 ? waitForTransition : AI_TYPING_TICK_MS;
+
     const timeout = setTimeout(() => {
       setMessages((prev) => {
         const updated = [...prev];
@@ -319,7 +330,7 @@ export default function WelcomePage() {
         updated[updated.length - 1] = msg;
         return updated;
       });
-    }, 30);
+    }, tickDelay);
 
     return () => clearTimeout(timeout);
   }, [messages]);
@@ -406,154 +417,233 @@ export default function WelcomePage() {
     }
   }, [sttSupported]);
 
+  const latestAssistant = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "ai") {
+        return { index: i, message: messages[i] };
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const previousAssistant = useMemo(() => {
+    if (!latestAssistant) return null;
+    for (let i = latestAssistant.index - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "ai") {
+        return messages[i];
+      }
+    }
+    return null;
+  }, [latestAssistant, messages]);
+
+  const latestUser = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "guest") {
+      return null;
+    }
+    return last;
+  }, [messages]);
+
+  const uiLabel = useMemo(() => {
+    switch (uiState) {
+      case "listening":
+        return "Listening";
+      case "speaking":
+        return "Speaking";
+      case "thinking":
+        return "Thinking";
+      case "error":
+        return "Connection Retry";
+      default:
+        return "Ready";
+    }
+  }, [uiState]);
+
+  const waitingForGuest = useMemo(
+    () => !latestUser && kioskState !== "routing",
+    [kioskState, latestUser]
+  );
+
+  const showAssistantFadeOut = useMemo(() => {
+    if (!latestAssistant || !previousAssistant) return false;
+    return !latestAssistant.message.isComplete && latestAssistant.message.displayedText.length === 0;
+  }, [latestAssistant, previousAssistant]);
+
+  useEffect(() => {
+    const el = assistantTextRef.current;
+    if (!el || showAssistantFadeOut) return;
+
+    const styles = window.getComputedStyle(el);
+    const lineHeight = parseFloat(styles.lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      setAssistantLift(0);
+      return;
+    }
+
+    const lines = Math.max(1, Math.round(el.scrollHeight / lineHeight));
+    const nextLift = Math.max(0, (lines - 1) * 18);
+    setAssistantLift(nextLift);
+  }, [latestAssistant?.message.displayedText, latestAssistant?.message.isComplete, showAssistantFadeOut]);
+
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <main className="flex min-h-screen flex-col bg-gradient-to-br from-zinc-50 to-zinc-100 font-sans antialiased text-black">
-      {/* Header */}
-      <header className="flex items-center justify-between px-8 py-2">
-        <Image
-          src="/queueo.png"
-          alt="Queueo"
-          width={360}
-          height={96}
-          className="h-16 w-auto"
-          priority
-        />
-        <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
-          Kiosk Check-in
-        </p>
-      </header>
-
-      {/* Chat Thread */}
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col overflow-hidden px-6 py-4">
-        <div className="flex-1 overflow-y-auto space-y-4 pb-4">
-          {messages.map((msg, i) => {
-            const isOld = i < messages.length - 2;
-
-            return (
-              <div
-                key={i}
-                className={`flex ${msg.role === "ai" ? "justify-start" : "justify-end"} transition-opacity duration-500 ${isOld ? "opacity-40" : "opacity-100"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-5 py-3 text-base leading-relaxed ${
-                    msg.role === "ai"
-                      ? "bg-white shadow-sm border border-zinc-200 text-black"
-                      : "bg-black text-white"
-                  } ${msg.isInterim ? "italic opacity-60" : ""}`}
-                >
-                  {msg.role === "ai" && !msg.isComplete
-                    ? (
-                        <>
-                          {msg.displayedText}
-                          <span className="animate-pulse">▌</span>
-                        </>
-                      )
-                    : msg.displayedText || msg.text}
-                </div>
-              </div>
-            );
-          })}
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Fallback Chips */}
-        {showFallbackChips && fallbackChips.length > 0 && (
-          <div className="flex flex-wrap gap-2 justify-center py-2 animate-fade-in">
-            {fallbackChips.map((chip) => (
-              <button
-                key={chip}
-                onClick={() => handleFallbackChip(chip)}
-                className="rounded-full border-2 border-black bg-white px-5 py-2 text-sm font-semibold text-black transition hover:bg-black hover:text-white"
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
-        )}
+    <main className="relative min-h-screen overflow-hidden bg-[#f4f7fb] font-sans antialiased text-zinc-900">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-16 -top-14 size-80 rounded-full bg-sky-300/35 blur-3xl animate-cloud-drift" />
+        <div className="absolute right-0 top-20 size-[24rem] rounded-full bg-indigo-200/45 blur-3xl animate-cloud-drift-reverse" />
+        <div className="absolute bottom-0 left-1/4 size-[20rem] rounded-full bg-cyan-200/35 blur-3xl animate-cloud-drift" />
       </div>
 
-      {/* State Strip */}
-      <div className="border-t border-zinc-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-center gap-4">
-          {/* Mic button */}
-          <button
-            onClick={handleMicTap}
-            disabled={uiState === "thinking" || kioskState === "routing"}
-            className={`flex h-12 w-12 items-center justify-center rounded-full transition-all ${
-              uiState === "listening"
-                ? "bg-black text-white shadow-lg shadow-black/25 scale-110"
-                : uiState === "speaking"
-                  ? "bg-zinc-200 text-zinc-400"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-            }`}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="h-6 w-6"
-            >
-              <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4Z" />
-              <path d="M6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.93V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.07A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-12 0Z" />
-            </svg>
-          </button>
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-5 md:px-8">
+        <header className="flex items-center justify-between">
+          <Image
+            src="/queueo.png"
+            alt="Queueo"
+            width={360}
+            height={96}
+            className="h-14 w-auto"
+            priority
+          />
+          <div className="rounded-full border border-white/60 bg-white/45 px-4 py-2 text-xs font-semibold tracking-[0.14em] text-zinc-700 backdrop-blur-xl">
+            KIOSK CHECK-IN
+          </div>
+        </header>
 
-          {/* State label & visualization */}
-          <div className="flex flex-1 items-center gap-3">
-            {uiState === "listening" && (
-              <>
-                <div className="flex items-center gap-1">
-                  {barHeights.map((h, i) => (
-                    <div
+        <div className="flex flex-1 items-center justify-center py-4">
+          <section className="flex w-full min-h-[72vh] flex-col rounded-[2rem] border border-white/65 bg-white/45 p-5 shadow-[0_20px_80px_rgba(25,34,52,0.12)] backdrop-blur-2xl md:p-7">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 rounded-full border border-white/75 bg-white/55 px-3 py-1.5 backdrop-blur-lg">
+              <span className={`relative inline-flex size-2.5 rounded-full ${
+                uiState === "error" ? "bg-red-500" : "bg-emerald-500"
+              }`}>
+                <span className={`absolute inset-0 rounded-full ${
+                  uiState === "error" ? "animate-ping bg-red-500/70" : "animate-ping bg-emerald-500/70"
+                }`} />
+              </span>
+              <span className="text-xs font-semibold tracking-[0.08em] text-zinc-700">
+                Queueo Assistant
+              </span>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-white/75 bg-white/55 px-3 py-1.5 backdrop-blur-lg">
+              {uiState === "listening" ? (
+                <div className="flex items-end gap-1">
+                  {barHeights.map((_h, i) => (
+                    <span
                       key={i}
-                      className="w-1 rounded-full bg-black"
+                      className="h-6 w-1 origin-bottom rounded-full bg-zinc-800"
                       style={{
-                        height: `${h}px`,
-                        animation: `sound-bar 0.4s ease-in-out ${i * 0.1}s infinite alternate`,
+                        animation: `sound-bar-scale 0.45s ease-in-out ${i * 0.08}s infinite alternate`,
                       }}
                     />
                   ))}
                 </div>
-                <span className="text-sm font-medium text-black">Listening…</span>
-              </>
-            )}
+              ) : (
+                <span className={`size-2 rounded-full ${
+                  uiState === "thinking"
+                    ? "bg-amber-500 animate-pulse"
+                    : uiState === "speaking"
+                      ? "bg-blue-500 animate-pulse"
+                      : uiState === "error"
+                        ? "bg-red-500 animate-pulse"
+                        : "bg-zinc-500"
+                }`} />
+              )}
+              <span className="text-xs font-semibold tracking-[0.08em] text-zinc-700">{uiLabel}</span>
+            </div>
+          </div>
 
-            {uiState === "speaking" && (
-              <>
-                <div className="h-3 w-3 rounded-full bg-black animate-pulse" />
-                <span className="text-sm font-medium text-zinc-400">Speaking…</span>
-              </>
-            )}
+            <div className="flex flex-1 flex-col justify-center px-2 py-4 md:px-6 md:py-5">
+            <div className="mt-4 flex min-h-[160px] w-full items-center justify-center px-2 md:min-h-[190px] md:px-4">
+              <div
+                className="w-full transition-transform duration-450 ease-out"
+                style={{ transform: `translateY(-${assistantLift}px)` }}
+              >
+                <p
+                  ref={assistantTextRef}
+                  key={`${latestAssistant?.index ?? "empty-assistant"}-${showAssistantFadeOut ? "out" : "in"}`}
+                  className={`${showAssistantFadeOut ? "animate-ai-fade-out" : "animate-ai-swap"} mx-auto w-full max-w-[62rem] break-words text-balance text-center text-[clamp(2.25rem,4.2vw,3.45rem)] font-semibold leading-[1.18] tracking-tight text-zinc-900`}
+                >
+                  {showAssistantFadeOut && previousAssistant
+                    ? previousAssistant.text
+                    : latestAssistant
+                    ? (
+                        <>
+                          {latestAssistant.message.displayedText || latestAssistant.message.text}
+                          {!latestAssistant.message.isComplete && <span className="ml-1 animate-pulse">▌</span>}
+                        </>
+                      )
+                    : "Welcome to Queueo."}
+                </p>
+              </div>
+            </div>
 
-            {uiState === "thinking" && (
-              <>
-                <div className="flex gap-1">
-                  {[0, 1, 2].map((i) => (
-                    <div
-                      key={i}
-                      className="h-2 w-2 rounded-full bg-black animate-bounce"
-                      style={{ animationDelay: `${i * 0.15}s` }}
-                    />
-                  ))}
+            <div className={`mx-auto mt-5 w-full max-w-3xl rounded-2xl border px-4 py-3 backdrop-blur-md transition ${
+              waitingForGuest
+                ? "border-sky-100/90 bg-gradient-to-r from-white/42 via-sky-50/38 to-indigo-50/34"
+                : "border-white/70 bg-white/35"
+            }`}>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-[13px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                  Guest
+                </p>
+              </div>
+
+              {waitingForGuest ? (
+                <div className="flex min-h-[1.5rem] items-center gap-2 text-sm text-zinc-700 md:text-base">
+                  <span className="animate-wait-highlight bg-[repeating-linear-gradient(112deg,rgba(71,85,105,0.9)_0px,rgba(71,85,105,0.9)_68px,rgba(148,163,184,0.94)_104px,rgba(186,230,253,0.92)_138px,rgba(199,210,254,0.9)_174px,rgba(71,85,105,0.9)_238px)] bg-[length:280px_100%] bg-clip-text text-transparent">
+                    Awaiting guest response
+                  </span>
                 </div>
-                <span className="text-sm font-medium text-zinc-500">Thinking…</span>
-              </>
-            )}
+              ) : (
+                <p className={`min-h-[1.5rem] text-sm text-zinc-700 md:text-base ${latestUser?.isInterim ? "italic opacity-70" : ""}`}>
+                  {latestUser?.displayedText || latestUser?.text}
+                </p>
+              )}
+            </div>
 
-            {uiState === "error" && (
-              <span className="text-sm font-medium text-red-500 animate-pulse">
-                Couldn&apos;t hear you — retrying…
-              </span>
-            )}
-
-            {uiState === "idle" && (
-              <span className="text-sm text-zinc-400">Tap the mic to speak</span>
+            {showFallbackChips && fallbackChips.length > 0 && (
+              <div className="mt-5 flex flex-wrap justify-center gap-2.5 animate-fade-in">
+                {fallbackChips.map((chip) => (
+                  <button
+                    key={chip}
+                    onClick={() => handleFallbackChip(chip)}
+                    className="rounded-full border border-zinc-300/70 bg-white/85 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-900 hover:text-white"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-lg">
+            <p className="text-sm text-zinc-600">
+              {uiState === "error"
+                ? "Couldn&apos;t hear you clearly. Retrying..."
+                : "Tap the mic to interrupt or continue naturally."}
+            </p>
+            <button
+              onClick={handleMicTap}
+              disabled={uiState === "thinking" || kioskState === "routing"}
+              aria-label="Toggle microphone"
+              className={`relative flex size-14 items-center justify-center rounded-full border transition-all duration-300 ${
+                uiState === "listening"
+                  ? "scale-[1.02] border-sky-200/70 bg-gradient-to-br from-sky-200/45 via-white/45 to-indigo-200/40 text-zinc-800 shadow-[0_0_0_6px_rgba(186,230,253,0.28)] backdrop-blur-xl"
+                  : "border-white/80 bg-gradient-to-br from-white/55 to-sky-100/35 text-zinc-700 backdrop-blur-xl hover:border-sky-200/70 hover:from-white/65 hover:to-indigo-100/30"
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              <Mic
+                className="relative size-5"
+                strokeWidth={2.2}
+              />
+            </button>
+          </div>
+        </section>
         </div>
       </div>
+
+      <div ref={chatEndRef} className="hidden" />
 
       <style>{`
         @keyframes fade-in {
@@ -564,10 +654,58 @@ export default function WelcomePage() {
           animation: fade-in 0.5s ease-out;
         }
 
-        @keyframes sound-bar {
-          from { height: 8px; }
-          to { height: 24px; }
+        @keyframes sound-bar-scale {
+          from { transform: scaleY(0.35); }
+          to { transform: scaleY(1); }
         }
+
+        @keyframes cloud-drift {
+          0% { transform: translate3d(0, 0, 0) scale(1); }
+          50% { transform: translate3d(24px, -18px, 0) scale(1.04); }
+          100% { transform: translate3d(0, 0, 0) scale(1); }
+        }
+
+        @keyframes cloud-drift-reverse {
+          0% { transform: translate3d(0, 0, 0) scale(1); }
+          50% { transform: translate3d(-28px, 14px, 0) scale(1.05); }
+          100% { transform: translate3d(0, 0, 0) scale(1); }
+        }
+
+        @keyframes ai-swap {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes ai-fade-out {
+          from { opacity: 1; transform: translateY(0); }
+          to { opacity: 0; transform: translateY(-6px); }
+        }
+
+        .animate-cloud-drift {
+          animation: cloud-drift 18s ease-in-out infinite;
+        }
+
+        .animate-cloud-drift-reverse {
+          animation: cloud-drift-reverse 22s ease-in-out infinite;
+        }
+
+        .animate-ai-swap {
+          animation: ai-swap 0.35s ease-out;
+        }
+
+        .animate-ai-fade-out {
+          animation: ai-fade-out 0.22s ease-in forwards;
+        }
+
+        .animate-wait-highlight {
+          animation: wait-highlight 4s linear infinite;
+        }
+
+        @keyframes wait-highlight {
+          0% { background-position: 0 0; }
+          100% { background-position: 280px 0; }
+        }
+
       `}</style>
     </main>
   );
