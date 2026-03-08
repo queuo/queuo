@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Queueo — Smart restaurant reception",
+  title: "queuo — Smart restaurant reception",
   description: "Computer vision detects arriving guests and guides them to their table. No host required.",
 };
 

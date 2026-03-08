@@ -12,8 +12,8 @@ export default function ConfirmReservationPage() {
       <div className="mx-auto w-full max-w-7xl px-6 py-10 md:px-10">
         <header className="mb-12 flex items-center justify-between">
           <Image
-            src="/queueo.png"
-            alt="Queueo"
+            src="/queuo.png"
+            alt="queuo"
             width={240}
             height={64}
             className="h-14 w-auto"

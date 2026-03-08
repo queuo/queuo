@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FrostedPage, FrostedPill, GlassPanel } from "@/components/ui/frosted-shell";
 
 const VISION_SERVER =
   process.env.NEXT_PUBLIC_VISION_SERVER ?? "http://localhost:8000";
@@ -1855,17 +1856,6 @@ export default function BusinessDashboardPage() {
     [cameraData, activeZone]
   );
 
-  const grouped = useMemo(() => {
-    if (activeZone !== "All") return { [activeZone]: filteredCameras };
-    return filteredCameras.reduce<Record<string, typeof filteredCameras>>(
-      (acc, cam) => {
-        (acc[cam.zone] ??= []).push(cam);
-        return acc;
-      },
-      {}
-    );
-  }, [filteredCameras, activeZone]);
-
   const onlineCount = cameraData.filter((c) => c.status === "online").length;
   const totalPeopleNow = useMemo(
     () => cameraData.reduce((acc, cam) => acc + cam.peopleCount, 0),
@@ -2057,22 +2047,23 @@ export default function BusinessDashboardPage() {
   }, [totalZonePeople, zoneDistribution]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-zinc-100 via-zinc-50 to-white font-sans text-zinc-900 antialiased">
-      <div className="mx-auto w-full max-w-[1400px] px-6 py-8 md:px-10">
+    <FrostedPage className="font-[var(--font-geist-sans)]">
+      <div className="mx-auto w-full max-w-[1400px] px-6 py-5 md:px-10">
+        <GlassPanel className="p-5 md:p-7">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link
               href="/admin/entry"
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 hover:text-zinc-900"
+              className="flex items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-3 py-2 text-sm font-medium text-zinc-600 backdrop-blur-lg transition hover:bg-white/80 hover:text-zinc-900"
             >
               <ArrowLeft className="size-3.5" />
               Back
             </Link>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
                 Restaurant X
               </p>
-              <h1 className="text-2xl font-semibold tracking-tight">
+              <h1 className="text-[clamp(1.4rem,2.2vw,2rem)] font-semibold leading-tight tracking-tight text-zinc-900">
                 Business Dashboard
               </h1>
             </div>
@@ -2080,10 +2071,10 @@ export default function BusinessDashboardPage() {
 
           <div className="flex items-center gap-2">
             <span
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold ${
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold tracking-[0.08em] ${
                 visionConnected
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-amber-200 bg-amber-50 text-amber-700"
+                  ? "border-emerald-200/90 bg-emerald-50/90 text-emerald-700"
+                  : "border-amber-200/90 bg-amber-50/90 text-amber-700"
               }`}
             >
               <span
@@ -2093,13 +2084,13 @@ export default function BusinessDashboardPage() {
               />
               {visionConnected ? "Vision Connected" : "Vision Offline"}
             </span>
-            <span className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 shadow-sm">
+            <FrostedPill className="!py-2 !font-medium">
               {onlineCount}/{cameraData.length} cameras online
-            </span>
+            </FrostedPill>
           </div>
         </header>
 
-        <nav className="mt-6 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
+        <nav className="mt-6 flex items-center gap-2 rounded-2xl border border-white/70 bg-white/55 p-2 backdrop-blur-lg">
           <button
             type="button"
             onClick={() => setActiveView("cameras")}
@@ -2122,7 +2113,7 @@ export default function BusinessDashboardPage() {
 
         {activeView === "cameras" && (
           <>
-            <nav className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
+            <nav className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/70 bg-white/55 p-2 backdrop-blur-lg">
               {ZONES.map((zone) => (
                 <button
                   key={zone}
@@ -2139,16 +2130,16 @@ export default function BusinessDashboardPage() {
               ))}
 
               <div className="ml-auto flex items-center gap-2">
-                <div className="hidden rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] text-zinc-600 md:block">
+                <div className="hidden rounded-xl border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-medium text-zinc-600 md:block">
                   Entrance: {entranceDeviceLabel}
                 </div>
-                <div className="hidden rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] text-zinc-600 md:block">
+                <div className="hidden rounded-xl border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-medium text-zinc-600 md:block">
                   Dining: {useVisionBridgeForDining ? `Vision source ${diningSourceIndex}` : diningDeviceLabel}
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 rounded-xl text-xs"
+                  className="h-9 rounded-xl border-transparent bg-black px-4 text-xs font-semibold text-white hover:bg-zinc-800"
                   onClick={() => setZoneEditorOpen(true)}
                 >
                   Configure Floor Tables
@@ -2157,65 +2148,106 @@ export default function BusinessDashboardPage() {
             </nav>
 
             {videoInputs.length > 0 && (
-              <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                  Camera Assignment
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => refreshVideoInputs(false)}
-                    className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100"
-                  >
-                    Refresh Camera List
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUseVisionBridgeForDining((prev) => !prev)}
-                    className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium transition ${
-                      useVisionBridgeForDining
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
-                    }`}
-                  >
-                    {useVisionBridgeForDining ? "Dining via Vision Bridge: ON" : "Dining via Vision Bridge: OFF"}
-                  </button>
-                  {useVisionBridgeForDining && (
-                    <>
-                      <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1">
-                        <span className="text-[11px] text-zinc-600">Dining source index</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={8}
-                          value={diningSourceIndex}
-                          onChange={(e) => setDiningSourceIndex(Math.max(0, Number(e.target.value) || 0))}
-                          className="w-12 rounded border border-zinc-300 px-1 py-0.5 text-xs text-zinc-800 outline-none focus:border-zinc-500"
-                        />
-                      </label>
+              <section className="mt-4 rounded-[1.4rem] border border-white/70 bg-white/55 p-4 backdrop-blur-lg md:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                      Camera Assignment
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Route entrance and dining feeds with consistent source controls.
+                    </p>
+                  </div>
+                  <FrostedPill className="!min-h-8 !px-3 !py-1.5 !text-[10px] !font-medium">
+                    {videoInputs.length} video input{videoInputs.length !== 1 ? "s" : ""}
+                  </FrostedPill>
+                </div>
+
+                <div className="mt-4 grid gap-3 xl:grid-cols-[1.15fr_1fr]">
+                  <div className="rounded-2xl border border-white/70 bg-white/65 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Bridge Controls
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={startVisionBridgeCameras}
-                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+                        onClick={() => refreshVideoInputs(false)}
+                        className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100"
                       >
-                        Restart Vision Bridge
+                        Refresh Camera List
                       </button>
-                    </>
-                  )}
-                  {!hasIphoneCameraOption && (
-                    <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700">
-                      iPhone/Continuity camera not detected yet.
-                    </span>
-                  )}
-                  {selectedDeviceIds.entrance === selectedDeviceIds.dining && videoInputs.length > 1 && (
-                    <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700">
-                      Entrance and dining are set to the same device.
-                    </span>
-                  )}
+                      <button
+                        type="button"
+                        onClick={() => setUseVisionBridgeForDining((prev) => !prev)}
+                        className={`rounded-xl border px-3 py-1.5 text-[11px] font-medium transition ${
+                          useVisionBridgeForDining
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {useVisionBridgeForDining ? "Dining via Vision Bridge: ON" : "Dining via Vision Bridge: OFF"}
+                      </button>
+                      {useVisionBridgeForDining && (
+                        <>
+                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5">
+                            <span className="text-[11px] text-zinc-600">Dining source index</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={8}
+                              value={diningSourceIndex}
+                              onChange={(e) => setDiningSourceIndex(Math.max(0, Number(e.target.value) || 0))}
+                              className="w-12 rounded border border-zinc-300 px-1 py-0.5 text-xs text-zinc-800 outline-none focus:border-zinc-500"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={startVisionBridgeCameras}
+                            className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+                          >
+                            Restart Vision Bridge
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/70 bg-white/65 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Current Routing
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-medium text-zinc-600">
+                        Entrance: {entranceDeviceLabel}
+                      </div>
+                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-medium text-zinc-600">
+                        Dining: {useVisionBridgeForDining ? `Vision source ${diningSourceIndex}` : diningDeviceLabel}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-2 grid gap-2 md:grid-cols-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-medium text-zinc-600">Entrance Camera (local)</span>
+
+                {(!hasIphoneCameraOption ||
+                  (selectedDeviceIds.entrance === selectedDeviceIds.dining && videoInputs.length > 1)) && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {!hasIphoneCameraOption && (
+                      <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700">
+                        iPhone/Continuity camera not detected yet.
+                      </span>
+                    )}
+                    {selectedDeviceIds.entrance === selectedDeviceIds.dining && videoInputs.length > 1 && (
+                      <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700">
+                        Entrance and dining are set to the same device.
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      Entrance Camera (local)
+                    </span>
                     <select
                       value={selectedDeviceIds.entrance}
                       onChange={(e) =>
@@ -2228,7 +2260,7 @@ export default function BusinessDashboardPage() {
                           return { entrance, dining: alt?.deviceId ?? prev.dining };
                         })
                       }
-                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-zinc-400"
+                      className="rounded-xl border border-white/80 bg-white/90 px-3 py-2.5 text-sm text-zinc-800 outline-none transition focus:border-zinc-400"
                     >
                       {videoInputs.map((device, index) => (
                         <option key={device.deviceId} value={device.deviceId}>
@@ -2237,8 +2269,10 @@ export default function BusinessDashboardPage() {
                       ))}
                     </select>
                   </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-medium text-zinc-600">Dining Camera (iPhone Continuity)</span>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                      Dining Camera (iPhone Continuity)
+                    </span>
                     <select
                       value={selectedDeviceIds.dining}
                       disabled={useVisionBridgeForDining}
@@ -2252,7 +2286,7 @@ export default function BusinessDashboardPage() {
                           return { entrance: alt?.deviceId ?? prev.entrance, dining };
                         })
                       }
-                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                      className="rounded-xl border border-white/80 bg-white/90 px-3 py-2.5 text-sm text-zinc-800 outline-none transition focus:border-zinc-400 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
                     >
                       {videoInputs.map((device, index) => (
                         <option key={device.deviceId} value={device.deviceId}>
@@ -2277,7 +2311,7 @@ export default function BusinessDashboardPage() {
               </div>
             )}
 
-            <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <section className="mt-6 rounded-2xl border border-white/70 bg-white/55 p-4 backdrop-blur-lg">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
@@ -2331,50 +2365,48 @@ export default function BusinessDashboardPage() {
               )}
             </section>
 
-            <div className="mt-6 space-y-8">
-              {Object.entries(grouped).map(([zone, cameras]) => (
-                <section key={zone}>
-                  <div className="mb-4 flex items-center gap-3">
-                    <h2 className="text-base font-semibold text-zinc-900">{zone}</h2>
-                    <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500">
-                      {cameras.length} camera{cameras.length !== 1 ? "s" : ""}
-                    </span>
-                    <div className="flex-1 border-t border-zinc-200" />
-                  </div>
+            <section className="mt-6">
+              <div className="mb-4 flex items-center gap-3">
+                <h2 className="text-base font-semibold text-zinc-900">
+                  {activeZone === "All" ? "Camera feeds" : `${activeZone} camera feeds`}
+                </h2>
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500">
+                  {filteredCameras.length} camera{filteredCameras.length !== 1 ? "s" : ""}
+                </span>
+                <div className="flex-1 border-t border-zinc-200" />
+              </div>
 
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                    {cameras.map((cam) => (
-                      <CameraTile
-                        key={cam.id}
-                        camera={cam}
-                        stream={cam.stream}
-                        streamUrl={cam.streamUrl}
-                        status={cam.status}
-                        peopleCount={cam.peopleCount}
-                        fps={cam.fps}
-                        latencyMs={cam.latencyMs}
-                        visionConnected={cam.visionConnected}
-                        timestamp={timestamp}
-                        tableSummary={cam.id === FLOOR_CAMERA_ID ? floorSummary : undefined}
-                        tableZones={cam.id === FLOOR_CAMERA_ID ? zones : undefined}
-                        peopleAtTableById={cam.id === FLOOR_CAMERA_ID ? peopleAtTableById : undefined}
-                        detectionSnapshot={
-                          cam.id === ENTRANCE_CAMERA_ID
-                            ? detectionSnapshotByCamera[ENTRANCE_CAMERA_ID]
-                            : undefined
-                        }
-                        onOpenView={cam.id === FLOOR_CAMERA_ID ? () => setZoneEditorOpen(true) : undefined}
-                        onConfigureTables={
-                          cam.id === FLOOR_CAMERA_ID
-                            ? () => setZoneEditorOpen(true)
-                            : undefined
-                        }
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                {filteredCameras.map((cam) => (
+                  <CameraTile
+                    key={cam.id}
+                    camera={cam}
+                    stream={cam.stream}
+                    streamUrl={cam.streamUrl}
+                    status={cam.status}
+                    peopleCount={cam.peopleCount}
+                    fps={cam.fps}
+                    latencyMs={cam.latencyMs}
+                    visionConnected={cam.visionConnected}
+                    timestamp={timestamp}
+                    tableSummary={cam.id === FLOOR_CAMERA_ID ? floorSummary : undefined}
+                    tableZones={cam.id === FLOOR_CAMERA_ID ? zones : undefined}
+                    peopleAtTableById={cam.id === FLOOR_CAMERA_ID ? peopleAtTableById : undefined}
+                    detectionSnapshot={
+                      cam.id === ENTRANCE_CAMERA_ID
+                        ? detectionSnapshotByCamera[ENTRANCE_CAMERA_ID]
+                        : undefined
+                    }
+                    onOpenView={cam.id === FLOOR_CAMERA_ID ? () => setZoneEditorOpen(true) : undefined}
+                    onConfigureTables={
+                      cam.id === FLOOR_CAMERA_ID
+                        ? () => setZoneEditorOpen(true)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            </section>
 
             {filteredCameras.length === 0 && (
               <div className="mt-12 flex flex-col items-center gap-3 text-zinc-400">
@@ -2388,28 +2420,28 @@ export default function BusinessDashboardPage() {
         {activeView === "analytics" && (
           <section className="mt-4 flex flex-col gap-6">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Estimated visitors (24h)</p>
                 <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
                   <Users className="size-5 text-zinc-500" />
                   {estimatedVisitorsToday}
                 </p>
               </article>
-              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Peak hour</p>
                 <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
                   <Clock3 className="size-5 text-zinc-500" />
                   {peakHour}
                 </p>
               </article>
-              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Live occupancy</p>
                 <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
                   <BarChart3 className="size-5 text-zinc-500" />
                   {analyticsLiveOccupancy}
                 </p>
               </article>
-              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Busiest zone now</p>
                 <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
                   <TrendingUp className="size-5 text-zinc-500" />
@@ -2419,7 +2451,7 @@ export default function BusinessDashboardPage() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-3">
-              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm xl:col-span-2">
+              <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg xl:col-span-2">
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-zinc-900">Hourly occupancy trend</h2>
                   <span className="text-xs text-zinc-500">Rolling 24h line graph</span>
@@ -2439,7 +2471,7 @@ export default function BusinessDashboardPage() {
                 </div>
               </article>
 
-              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-zinc-900">Zone share</h2>
                   <span className="text-xs text-zinc-500">{USE_FAKE_ANALYTICS ? "Demo split" : "Live split"}</span>
@@ -2485,7 +2517,7 @@ export default function BusinessDashboardPage() {
               </article>
             </div>
 
-            <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
               <div className="mb-4 flex items-center justify-between gap-2">
                 <h2 className="text-base font-semibold text-zinc-900">Current load by zone</h2>
                 <span className="text-xs text-zinc-500">Horizontal bar graph</span>
@@ -2509,7 +2541,7 @@ export default function BusinessDashboardPage() {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <article className="rounded-2xl border border-white/70 bg-white/55 p-5 backdrop-blur-lg">
               <div className="mb-4 flex items-center justify-between gap-2">
                 <h2 className="text-base font-semibold text-zinc-900">Queue time by zone</h2>
                 <span className="text-xs text-zinc-500">Estimated wait in minutes</span>
@@ -2540,6 +2572,7 @@ export default function BusinessDashboardPage() {
             </article>
           </section>
         )}
+        </GlassPanel>
       </div>
 
       {zoneEditorOpen && (
@@ -2559,6 +2592,6 @@ export default function BusinessDashboardPage() {
       <canvas ref={analysisEntranceCanvasRef} className="hidden" />
       <video ref={analysisDiningVideoRef} muted playsInline className="hidden" />
       <canvas ref={analysisDiningCanvasRef} className="hidden" />
-    </main>
+    </FrostedPage>
   );
 }
