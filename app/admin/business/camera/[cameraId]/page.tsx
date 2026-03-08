@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, Save, Loader2, CheckCircle, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FrostedPage, GlassPanel } from "@/components/ui/frosted-shell";
 
 const CAMERA_META: Record<string, { name: string; filter: string }> = {
   "CAM-01": { name: "Main Entrance", filter: "saturate(1.05)" },
@@ -225,21 +226,23 @@ export default function CameraDetailPage() {
   }, [zones]);
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-gradient-to-b from-zinc-100 via-zinc-50 to-white font-sans text-zinc-900 antialiased">
+    <FrostedPage className="font-[var(--font-geist-sans)]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col px-6 py-5 md:px-10">
+      <GlassPanel className="flex h-[calc(100vh-3rem)] flex-col overflow-hidden p-0">
 
       {/* Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white/85 px-6 py-3 backdrop-blur shadow-sm">
+      <header className="flex shrink-0 items-center justify-between border-b border-white/70 bg-white/55 px-6 py-3 backdrop-blur-lg">
         <div className="flex items-center gap-3">
           <Link
             href="/admin/business/dashboard"
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 hover:text-zinc-900"
+            className="flex items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-3 py-1.5 text-sm font-medium text-zinc-600 backdrop-blur-lg transition hover:bg-white/80 hover:text-zinc-900"
           >
             <ArrowLeft className="size-3.5" />
             Dashboard
           </Link>
           <div className="h-4 w-px bg-zinc-200" />
           <div>
-            <p className="text-sm font-semibold text-zinc-900">{meta.name}</p>
+            <p className="text-sm font-semibold tracking-tight text-zinc-900">{meta.name}</p>
             <p className="text-[11px] text-zinc-400">{cameraId} &bull; Zone editor</p>
           </div>
         </div>
@@ -251,7 +254,7 @@ export default function CameraDetailPage() {
             className={`flex h-8 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
               drawMode
                 ? "border-zinc-900 bg-zinc-900 text-white"
-                : "border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 hover:text-zinc-900"
+                : "border-white/80 bg-white/60 text-zinc-700 hover:bg-white/80 hover:text-zinc-900"
             }`}
           >
             <Plus className="size-3.5" />
@@ -317,7 +320,7 @@ export default function CameraDetailPage() {
         </div>
 
         {/* Sidebar */}
-        <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+        <aside className="frosted-surface-strong flex w-72 shrink-0 flex-col overflow-hidden rounded-2xl">
           <div className="border-b border-zinc-100 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-400">
               Table Zones
@@ -429,6 +432,8 @@ export default function CameraDetailPage() {
           )}
         </aside>
       </div>
-    </main>
+      </GlassPanel>
+      </div>
+    </FrostedPage>
   );
 }

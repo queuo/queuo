@@ -1,30 +1,36 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { FrostedPage, GlassPanel, FrostedPill } from "@/components/ui/frosted-shell";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-white font-sans antialiased">
+    <FrostedPage className="font-sans">
 
       {/* Navbar */}
-      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white/90 backdrop-blur-sm">
-        <div className="mx-auto flex h-24 max-w-7xl items-center justify-between px-6">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/60 bg-white/45 backdrop-blur-xl">
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6">
           {/* Logo */}
           <Image
-            src="/queueo.png"
-            alt="Queueo Logo"
+            src="/queuo.png"
+            alt="queuo Logo"
             height={80}
             width={80}
-            className="h-16 w-auto"
+            className="h-14 w-auto"
           />
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="text-sm text-zinc-600" asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 rounded-full px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600 hover:bg-white/60"
+              asChild
+            >
               <a href="/login">Login</a>
             </Button>
             <Button
               size="sm"
-              className="rounded-lg bg-black px-4 text-sm text-white hover:bg-zinc-800"
+              className="h-10 rounded-full bg-black px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-white hover:bg-zinc-800"
             >
               Contact
             </Button>
@@ -33,9 +39,11 @@ export default function Home() {
       </header>
 
       {/* Hero */}
-      <section className="bg-zinc-50 px-6 pb-24 pt-20">
+      <section className="px-6 pb-24 pt-32">
         <div className="mx-auto max-w-7xl">
+          <GlassPanel className="p-8 md:p-10">
           <div className="max-w-2xl">
+            <FrostedPill>Smart Reception Platform</FrostedPill>
             <h1 className="text-6xl font-semibold leading-[1.1] tracking-tight text-black">
               Smart guest
               <br />
@@ -48,12 +56,12 @@ export default function Home() {
               kiosk guides them to their table — automatically.
             </p>
             <div className="mt-8 flex items-center gap-3">
-              <Button className="h-11 rounded-lg bg-black px-6 text-sm font-medium text-white hover:bg-zinc-800">
+              <Button className="h-12 rounded-xl bg-black px-6 text-base font-semibold tracking-tight text-white hover:bg-zinc-800">
                 Get a demo
               </Button>
               <Button
                 variant="outline"
-                className="h-11 rounded-lg px-6 text-sm font-medium"
+                className="h-12 rounded-xl border-zinc-300/70 bg-white/80 px-6 text-base font-semibold tracking-tight"
               >
                 Learn more
               </Button>
@@ -61,10 +69,10 @@ export default function Home() {
           </div>
 
           {/* Dashboard mockup placeholder */}
-          <div className="mt-14 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
-            <div className="flex h-[500px] items-center justify-center bg-zinc-100">
+          <div className="mt-14 overflow-hidden rounded-2xl border border-white/70 bg-white/65 shadow-xl backdrop-blur-lg">
+            <div className="flex h-[500px] items-center justify-center bg-gradient-to-br from-sky-50/80 via-cyan-50/60 to-indigo-50/70">
               <div className="text-center">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-200">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/70 bg-white/70">
                   <svg
                     className="h-8 w-8 text-zinc-400"
                     fill="none"
@@ -85,13 +93,14 @@ export default function Home() {
               </div>
             </div>
           </div>
+          </GlassPanel>
         </div>
       </section>
 
       {/* Features */}
-      <section className="bg-white px-6 py-24">
+      <section className="px-6 py-24">
         <div className="mx-auto max-w-7xl">
-          <div className="grid grid-cols-1 gap-16 lg:grid-cols-2 lg:items-center">
+          <GlassPanel className="grid grid-cols-1 gap-16 p-8 md:p-10 lg:grid-cols-2 lg:items-center">
             <div>
               <h2 className="text-4xl font-semibold leading-tight tracking-tight text-black">
                 Smart reception meets next-generation vision
@@ -142,18 +151,19 @@ export default function Home() {
             </div>
 
             {/* Camera / kiosk placeholder */}
-            <div className="flex h-96 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50">
+            <div className="flex h-96 items-center justify-center rounded-2xl border border-white/70 bg-white/65 backdrop-blur-lg">
               <p className="text-sm font-medium text-zinc-400">
                 Kiosk view placeholder
               </p>
             </div>
-          </div>
+          </GlassPanel>
         </div>
       </section>
 
       {/* How it works */}
-      <section className="bg-zinc-50 px-6 py-24">
+      <section className="px-6 py-24">
         <div className="mx-auto max-w-7xl">
+          <GlassPanel className="p-8 md:p-10">
           <div className="mb-16 text-center">
             <h2 className="text-4xl font-semibold tracking-tight text-black">
               How it works
@@ -183,7 +193,7 @@ export default function Home() {
             ].map((item) => (
               <div
                 key={item.step}
-                className="rounded-2xl border border-zinc-200 bg-white p-8"
+                className="rounded-2xl border border-white/70 bg-white/70 p-8 backdrop-blur-lg"
               >
                 <p className="font-mono text-sm font-medium text-zinc-400">
                   {item.step}
@@ -195,6 +205,7 @@ export default function Home() {
               </div>
             ))}
           </div>
+          </GlassPanel>
         </div>
       </section>
 
@@ -207,7 +218,7 @@ export default function Home() {
           <p className="mt-4 text-lg text-zinc-400">
             See how it works in a live demo.
           </p>
-          <Button className="mt-8 h-12 rounded-lg bg-white px-8 text-sm font-medium text-black hover:bg-zinc-100">
+          <Button className="mt-8 h-12 rounded-xl bg-white px-8 text-sm font-semibold tracking-tight text-black hover:bg-zinc-100">
             Get a free demo
           </Button>
         </div>
@@ -255,18 +266,18 @@ export default function Home() {
 
           <div className="mt-12 flex items-center justify-between border-t border-zinc-800 pt-8">
             <Image
-              src="/queueo.png"
-              alt="Queueo Logo"
+              src="/queuo.png"
+              alt="queuo Logo"
               height={60}
               width={60}
               className="h-14 w-auto"
             />
             <p className="text-sm text-zinc-500">
-              © 2026 Queueo. All rights reserved.
+              © 2026 queuo. All rights reserved.
             </p>
           </div>
         </div>
       </footer>
-    </div>
+    </FrostedPage>
   );
 }

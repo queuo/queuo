@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { FrostedPage, FrostedPill, GlassPanel } from "@/components/ui/frosted-shell";
 
 type Stage = "greeting" | "buttons";
 
@@ -66,58 +67,75 @@ export default function AdminLanding() {
   }, [stage, messages]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-zinc-50 to-zinc-100 font-sans antialiased text-black">
-      {/* Header */}
-      <header className="flex items-center justify-between px-8 py-2">
-        <Image
-          src="/queueo.png"
-          alt="Queueo"
-          width={360}
-          height={96}
-          className="h-16 w-auto"
-          priority
-        />
-        <p className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white">
-          Admin Portal
-        </p>
-      </header>
+    <FrostedPage className="font-sans">
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-5 md:px-8">
+        <header className="flex items-center justify-between">
+          <Image
+            src="/queuo.png"
+            alt="queuo"
+            width={360}
+            height={96}
+            className="h-14 w-auto"
+            priority
+          />
+          <FrostedPill>ADMIN PORTAL</FrostedPill>
+        </header>
 
-      <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-10 md:px-10">
-
-        {/* Conversation Container */}
-        <section className="flex flex-col items-center justify-center min-h-[500px]">
-          <div className="w-full max-w-2xl space-y-6">
-            {messages.map((msg, i) => (
-              <div key={i} className="animate-fade-in">
-                <h1 className="text-4xl md:text-6xl font-bold text-black leading-tight tracking-tight min-h-[80px]">
-                  {msg.displayedText}
-                  {!msg.isComplete && i === messages.length - 1 && (
-                    <span className="animate-pulse">|</span>
-                  )}
-                </h1>
+        <div className="flex flex-1 items-center justify-center py-4">
+          <GlassPanel className="flex w-full min-h-[72vh] max-w-6xl flex-col p-5 md:p-7">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="frosted-pill-pop flex items-center gap-2.5 rounded-full border border-white/75 bg-white/55 px-3 py-1.5 backdrop-blur-lg">
+                <span className="inline-flex size-2.5 rounded-full bg-emerald-500" />
+                <span className="text-xs font-semibold tracking-[0.08em] text-zinc-700">
+                  queuo Assistant
+                </span>
               </div>
-            ))}
-
-            {showButtons && (
-              <div className="mt-12 flex flex-col gap-4 sm:flex-row animate-fade-in">
-                <Link
-                  href="/admin/customer/welcome-page"
-                  className="flex-1 rounded-lg bg-black px-8 py-5 text-center text-base font-semibold text-white transition hover:bg-zinc-800 active:bg-black"
-                >
-                  Customer View
-                </Link>
-                <Link
-                  href="/admin/business/dashboard"
-                  className="flex-1 rounded-lg border-2 border-black bg-white px-8 py-5 text-center text-base font-semibold text-black transition hover:bg-black hover:text-white"
-                >
-                  Business View
-                </Link>
+              <div className="frosted-pill-pop rounded-full border border-white/75 bg-white/55 px-3 py-1.5 text-xs font-semibold tracking-[0.08em] text-zinc-700 backdrop-blur-lg">
+                Ready
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+
+            <div className="frosted-reveal-soft flex flex-1 flex-col justify-center px-2 py-4 md:px-6 md:py-5">
+              <div className="mt-4 flex min-h-[220px] w-full items-center justify-center px-2 md:min-h-[250px] md:px-4">
+                <div className="mx-auto w-full max-w-[58rem]">
+                  {messages.map((msg, i) => (
+                    <div key={i} className="animate-fade-in">
+                      <h1 className="min-h-[88px] text-balance text-center text-[clamp(2.25rem,4.2vw,3.45rem)] font-semibold leading-[1.18] tracking-tight text-zinc-900">
+                        {msg.displayedText}
+                        {!msg.isComplete && i === messages.length - 1 && (
+                          <span className="animate-pulse">|</span>
+                        )}
+                      </h1>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {showButtons && (
+                <div className="mx-auto mt-8 flex w-full max-w-4xl flex-col gap-4 animate-fade-in sm:flex-row">
+                  <Link
+                    href="/admin/customer/welcome-page"
+                    className="flex h-12 flex-1 items-center justify-center rounded-xl bg-black px-8 text-center text-base font-semibold tracking-tight text-white transition hover:bg-zinc-800 active:bg-black"
+                  >
+                    Customer View
+                  </Link>
+                  <Link
+                    href="/admin/business/dashboard"
+                    className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-300/70 bg-white/80 px-8 text-center text-base font-semibold tracking-tight text-black transition hover:bg-black hover:text-white"
+                  >
+                    Business View
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/70 bg-white/55 px-4 py-3 text-sm font-medium text-zinc-600 backdrop-blur-lg">
+              Select a mode to continue.
+            </div>
+          </GlassPanel>
+        </div>
       </div>
-
+      
       <style>{`
         @keyframes fade-in {
           from {
@@ -134,6 +152,6 @@ export default function AdminLanding() {
           animation: fade-in 0.5s ease-out;
         }
       `}</style>
-    </main>
+    </FrostedPage>
   );
 }

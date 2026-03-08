@@ -498,8 +498,8 @@ export default function WelcomePage() {
       <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-5 md:px-8">
         <header className="flex items-center justify-between">
           <Image
-            src="/queueo.png"
-            alt="Queueo"
+            src="/queuo.png"
+            alt="queuo"
             width={360}
             height={96}
             className="h-14 w-auto"
@@ -522,7 +522,7 @@ export default function WelcomePage() {
                 }`} />
               </span>
               <span className="text-xs font-semibold tracking-[0.08em] text-zinc-700">
-                Queueo Assistant
+                queuo Assistant
               </span>
             </div>
             <div className="flex items-center gap-2 rounded-full border border-white/75 bg-white/55 px-3 py-1.5 backdrop-blur-lg">
@@ -573,7 +573,7 @@ export default function WelcomePage() {
                           {!latestAssistant.message.isComplete && <span className="ml-1 animate-pulse">▌</span>}
                         </>
                       )
-                    : "Welcome to Queueo."}
+                    : "Welcome to queuo."}
                 </p>
               </div>
             </div>

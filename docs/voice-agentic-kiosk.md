@@ -245,7 +245,7 @@ The screen is split into a **chat thread** — not just a single headline messag
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  [Queueo logo]                        Kiosk Check-in │
+│  [queuo logo]                        Kiosk Check-in │
 ├──────────────────────────────────────────────────────┤
 │                                                      │
 │  ┌─────────────────────────────────────────────┐    │
