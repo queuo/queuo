@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Camera, Check, Pencil, Plus, Trash2, Users, Wifi, WifiOff, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Camera, Check, Clock3, Pencil, Plus, Trash2, TrendingUp, Users, Wifi, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const VISION_SERVER =
@@ -29,6 +29,20 @@ const CAMERA_PRESETS: CameraPreset[] = [
   },
 ];
 
+const USE_FAKE_ANALYTICS = true;
+
+const MOCK_HOURLY_OCCUPANCY = [
+  4, 3, 2, 2, 3, 6, 10, 14, 18, 21, 25, 29,
+  34, 31, 28, 24, 22, 26, 33, 36, 30, 20, 12, 7,
+];
+
+const MOCK_ZONE_DISTRIBUTION = [
+  { zone: "Entrance", count: 34, cameras: 2, queueMinutes: 8 },
+  { zone: "Dining Hall", count: 49, cameras: 3, queueMinutes: 14 },
+  { zone: "Bar", count: 23, cameras: 2, queueMinutes: 9 },
+  { zone: "Patio", count: 18, cameras: 1, queueMinutes: 6 },
+];
+
 // ---- Vision-server camera (MJPEG stream) ----
 interface VisionCamera {
   id: string;
@@ -37,6 +51,11 @@ interface VisionCamera {
   source: number;
   streamUrl: string;
   peopleCount: number;
+}
+
+interface TrafficSample {
+  timestamp: number;
+  totalPeople: number;
 }
 
 const STATUS_BADGE: Record<CameraStatus, string> = {
@@ -148,10 +167,12 @@ function BrowserCameraTile({
 function VisionCameraTile({
   camera,
   onRemove,
+  onCountChange,
   timestamp,
 }: {
   camera: VisionCamera;
   onRemove: (id: string) => void;
+  onCountChange: (id: string, count: number) => void;
   timestamp: string;
 }) {
   const [count, setCount] = useState(camera.peopleCount);
@@ -163,7 +184,9 @@ function VisionCameraTile({
         const res = await fetch(`${VISION_SERVER}/cameras/${camera.id}`);
         if (res.ok) {
           const data = await res.json();
-          setCount(typeof data.people_count === "number" ? data.people_count : 0);
+          const nextCount = typeof data.people_count === "number" ? data.people_count : 0;
+          setCount(nextCount);
+          onCountChange(camera.id, nextCount);
         }
       } catch {
         // server offline
@@ -172,7 +195,7 @@ function VisionCameraTile({
     poll();
     const interval = setInterval(poll, 1500);
     return () => clearInterval(interval);
-  }, [camera.id]);
+  }, [camera.id, onCountChange]);
 
   return (
     <article className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950 shadow-sm transition hover:border-zinc-300 hover:shadow-md">
@@ -366,6 +389,7 @@ function AddCameraModal({
 
 // ---- Dashboard page ----
 export default function BusinessDashboardPage() {
+  const [activeView, setActiveView] = useState<"cameras" | "analytics">("cameras");
   const [activeZone, setActiveZone] = useState<string>("All");
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -377,6 +401,21 @@ export default function BusinessDashboardPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingZone, setEditingZone] = useState<string | null>(null);
   const [editZoneValue, setEditZoneValue] = useState("");
+  const [trafficSamples, setTrafficSamples] = useState<TrafficSample[]>(() => {
+    if (typeof window === "undefined") return [];
+    const saved = localStorage.getItem("traffic-samples-v1");
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved) as TrafficSample[];
+      if (!Array.isArray(parsed)) return [];
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      return parsed
+        .filter((sample) => sample && typeof sample.timestamp === "number" && typeof sample.totalPeople === "number")
+        .filter((sample) => sample.timestamp >= oneDayAgo);
+    } catch {
+      return [];
+    }
+  });
 
   // Restore persisted cameras on mount
   useEffect(() => {
@@ -412,7 +451,6 @@ export default function BusinessDashboardPage() {
         // vision server not running — skip silently
       }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const analysisVideoRef = useRef<HTMLVideoElement>(null);
@@ -534,6 +572,12 @@ export default function BusinessDashboardPage() {
     });
   }
 
+  const handleVisionCountChange = useCallback((id: string, count: number) => {
+    setVisionCameras((prev) =>
+      prev.map((camera) => (camera.id === id ? { ...camera, peopleCount: count } : camera))
+    );
+  }, []);
+
   function handleRenameZone(oldZone: string, newZone: string) {
     const trimmed = newZone.trim();
     if (!trimmed || trimmed === oldZone) { setEditingZone(null); return; }
@@ -565,6 +609,27 @@ export default function BusinessDashboardPage() {
     })),
     [stream, visionConnected, peopleCount, estimatedFps]
   );
+
+  const totalPeopleNow = useMemo(
+    () => browserCameraData.reduce((acc, cam) => acc + cam.peopleCount, 0) + visionCameras.reduce((acc, cam) => acc + cam.peopleCount, 0),
+    [browserCameraData, visionCameras]
+  );
+
+  useEffect(() => {
+    const addSample = () => {
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      setTrafficSamples((prev) => {
+        const next = [...prev, { timestamp: Date.now(), totalPeople: totalPeopleNow }]
+          .filter((sample) => sample.timestamp >= oneDayAgo);
+        localStorage.setItem("traffic-samples-v1", JSON.stringify(next));
+        return next;
+      });
+    };
+
+    addSample();
+    const interval = setInterval(addSample, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [totalPeopleNow]);
 
   // Combine all zones (presets + vision cameras)
   const allZones = useMemo(() => {
@@ -600,6 +665,178 @@ export default function BusinessDashboardPage() {
 
   const totalCameras = browserCameraData.length + visionCameras.length;
   const onlineCount = browserCameraData.filter((c) => c.status === "online").length + visionCameras.length;
+
+  const zonePeopleNow = useMemo(() => {
+    if (USE_FAKE_ANALYTICS) {
+      return MOCK_ZONE_DISTRIBUTION.reduce<Record<string, number>>((acc, item) => {
+        acc[item.zone] = item.count;
+        return acc;
+      }, {});
+    }
+    const next: Record<string, number> = {};
+    for (const cam of browserCameraData) next[cam.zone] = (next[cam.zone] ?? 0) + cam.peopleCount;
+    for (const cam of visionCameras) next[cam.zone] = (next[cam.zone] ?? 0) + cam.peopleCount;
+    return next;
+  }, [browserCameraData, visionCameras]);
+
+  const busiestZone = useMemo(() => {
+    const entries = Object.entries(zonePeopleNow);
+    if (entries.length === 0) return "N/A";
+    return entries.sort((a, b) => b[1] - a[1])[0][0];
+  }, [zonePeopleNow]);
+
+  const hourlyOccupancy = useMemo(() => {
+    if (USE_FAKE_ANALYTICS) {
+      return MOCK_HOURLY_OCCUPANCY.map((avg, hour) => ({
+        hour,
+        total: avg,
+        samples: 1,
+        avg,
+        label: `${String(hour).padStart(2, "0")}:00`,
+      }));
+    }
+    const buckets = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      total: 0,
+      samples: 0,
+      avg: 0,
+      label: `${String(hour).padStart(2, "0")}:00`,
+    }));
+
+    for (const sample of trafficSamples) {
+      const hour = new Date(sample.timestamp).getHours();
+      buckets[hour].total += sample.totalPeople;
+      buckets[hour].samples += 1;
+    }
+
+    return buckets.map((bucket) => ({
+      ...bucket,
+      avg: bucket.samples > 0 ? Math.round(bucket.total / bucket.samples) : 0,
+    }));
+  }, [trafficSamples]);
+
+  const peakHour = useMemo(() => {
+    const busiest = [...hourlyOccupancy].sort((a, b) => b.avg - a.avg)[0];
+    return busiest?.avg ? busiest.label : "Not enough data";
+  }, [hourlyOccupancy]);
+
+  const estimatedVisitorsToday = useMemo(() => {
+    if (USE_FAKE_ANALYTICS) return 286;
+    if (trafficSamples.length < 2) return totalPeopleNow;
+    const ordered = [...trafficSamples].sort((a, b) => a.timestamp - b.timestamp);
+    let totalInflow = 0;
+    for (let i = 1; i < ordered.length; i += 1) {
+      const delta = ordered[i].totalPeople - ordered[i - 1].totalPeople;
+      if (delta > 0) totalInflow += delta;
+    }
+    return totalInflow;
+  }, [trafficSamples, totalPeopleNow]);
+
+  const highestHourlyLoad = useMemo(
+    () => hourlyOccupancy.reduce((max, hour) => Math.max(max, hour.avg), 0),
+    [hourlyOccupancy]
+  );
+
+  const trendChart = useMemo(() => {
+    const width = 720;
+    const height = 220;
+    const left = 24;
+    const right = width - 24;
+    const top = 16;
+    const bottom = height - 28;
+    const maxY = Math.max(highestHourlyLoad, 1);
+    const stepX = (right - left) / Math.max(hourlyOccupancy.length - 1, 1);
+
+    const points = hourlyOccupancy.map((entry, index) => {
+      const x = left + index * stepX;
+      const y = bottom - (entry.avg / maxY) * (bottom - top);
+      return { ...entry, x, y };
+    });
+
+    const linePath = points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+      .join(" ");
+    const areaPath = `${linePath} L ${right} ${bottom} L ${left} ${bottom} Z`;
+
+    return { width, height, left, right, top, bottom, points, linePath, areaPath };
+  }, [hourlyOccupancy, highestHourlyLoad]);
+
+  const zoneDistribution = useMemo(
+    () =>
+      USE_FAKE_ANALYTICS
+        ? MOCK_ZONE_DISTRIBUTION.map((item) => ({ zone: item.zone, count: item.count }))
+        : Object.entries(zonePeopleNow)
+          .map(([zone, count]) => ({ zone, count }))
+          .sort((a, b) => b.count - a.count),
+    [zonePeopleNow]
+  );
+
+  const totalZonePeople = useMemo(
+    () => zoneDistribution.reduce((sum, item) => sum + item.count, 0),
+    [zoneDistribution]
+  );
+
+  const analyticsLiveOccupancy = USE_FAKE_ANALYTICS ? totalZonePeople : totalPeopleNow;
+
+  const zoneCameraCounts = useMemo(() => {
+    if (USE_FAKE_ANALYTICS) {
+      return MOCK_ZONE_DISTRIBUTION.reduce<Record<string, number>>((acc, item) => {
+        acc[item.zone] = item.cameras;
+        return acc;
+      }, {});
+    }
+    const counts: Record<string, number> = {};
+    for (const cam of browserCameraData) counts[cam.zone] = (counts[cam.zone] ?? 0) + 1;
+    for (const cam of visionCameras) counts[cam.zone] = (counts[cam.zone] ?? 0) + 1;
+    return counts;
+  }, [browserCameraData, visionCameras]);
+
+  const queueByZone = useMemo(
+    () => {
+      if (USE_FAKE_ANALYTICS) {
+        return MOCK_ZONE_DISTRIBUTION.map((item) => ({
+          zone: item.zone,
+          count: item.count,
+          cameras: item.cameras,
+          queueMinutes: item.queueMinutes,
+          queueLevel: item.queueMinutes >= 12 ? "High" : item.queueMinutes >= 7 ? "Medium" : "Low",
+        }));
+      }
+      return zoneDistribution.map((item) => {
+        const cameras = zoneCameraCounts[item.zone] ?? 1;
+        const queueMinutes = Math.max(1, Math.round((item.count * 2.8) / cameras));
+        const queueLevel = queueMinutes >= 12 ? "High" : queueMinutes >= 7 ? "Medium" : "Low";
+        return { ...item, cameras, queueMinutes, queueLevel };
+      });
+    },
+    [zoneDistribution, zoneCameraCounts]
+  );
+
+  const maxQueueMinutes = useMemo(
+    () => queueByZone.reduce((max, item) => Math.max(max, item.queueMinutes), 0),
+    [queueByZone]
+  );
+
+  const donutSegments = useMemo(() => {
+    if (totalZonePeople === 0) return [];
+    const radius = 52;
+    const circumference = 2 * Math.PI * radius;
+    const palette = ["#111827", "#374151", "#6B7280", "#9CA3AF", "#D1D5DB"];
+    let offset = 0;
+    return zoneDistribution.slice(0, 5).map((item, index) => {
+      const ratio = item.count / totalZonePeople;
+      const length = ratio * circumference;
+      const segment = {
+        ...item,
+        stroke: palette[index % palette.length],
+        dasharray: `${length} ${circumference - length}`,
+        dashoffset: -offset,
+        percent: Math.round(ratio * 100),
+      };
+      offset += length;
+      return segment;
+    });
+  }, [totalZonePeople, zoneDistribution]);
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-zinc-100 via-zinc-50 to-white font-sans text-zinc-900 antialiased">
@@ -640,146 +877,329 @@ export default function BusinessDashboardPage() {
           </div>
         </header>
 
-        {/* Zone filter tabs */}
-        <nav className="mt-6 flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
-          {allZones.map((zone) => {
-            if (zone === "All") {
-              return (
-                <button
-                  key="All"
-                  type="button"
-                  onClick={() => setActiveZone("All")}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    activeZone === "All" ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                  }`}
-                >
-                  All
-                </button>
-              );
-            }
-
-            if (editingZone === zone) {
-              return (
-                <div key={zone} className="flex items-center gap-1 rounded-xl border border-zinc-300 bg-zinc-50 px-2 py-1">
-                  <input
-                    autoFocus
-                    value={editZoneValue}
-                    onChange={(e) => setEditZoneValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRenameZone(zone, editZoneValue);
-                      if (e.key === "Escape") setEditingZone(null);
-                    }}
-                    className="w-24 bg-transparent text-sm font-semibold text-zinc-900 outline-none"
-                  />
-                  <button type="button" onClick={() => handleRenameZone(zone, editZoneValue)} className="text-emerald-600 hover:text-emerald-700">
-                    <Check className="size-3.5" />
-                  </button>
-                  <button type="button" onClick={() => setEditingZone(null)} className="text-zinc-400 hover:text-zinc-600">
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              );
-            }
-
-            const isStatic = zone === "Entrance";
-            return (
-              <div key={zone} className="group flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => setActiveZone(zone)}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    activeZone === zone ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                  }`}
-                >
-                  {zone}
-                </button>
-                {!isStatic && (
-                  <div className="hidden group-hover:flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => { setEditingZone(zone); setEditZoneValue(zone); }}
-                      className="rounded p-1 text-zinc-400 hover:text-zinc-700"
-                      title="Rename zone"
-                    >
-                      <Pencil className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteZone(zone)}
-                      className="rounded p-1 text-zinc-400 hover:text-red-500"
-                      title="Delete zone and its cameras"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 rounded-xl text-xs gap-1.5"
-              onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="size-3.5" />
-              Add Camera
-            </Button>
-          </div>
+        <nav className="mt-6 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setActiveView("cameras")}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              activeView === "cameras" ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+            }`}
+          >
+            Cameras
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("analytics")}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              activeView === "analytics" ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+            }`}
+          >
+            Analytics
+          </button>
         </nav>
 
-        {cameraError && (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {cameraError}
-          </div>
+        {activeView === "cameras" && (
+          <>
+            {/* Zone filter tabs */}
+            <nav className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
+              {allZones.map((zone) => {
+                if (zone === "All") {
+                  return (
+                    <button
+                      key="All"
+                      type="button"
+                      onClick={() => setActiveZone("All")}
+                      className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                        activeZone === "All" ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                      }`}
+                    >
+                      All
+                    </button>
+                  );
+                }
+
+                if (editingZone === zone) {
+                  return (
+                    <div key={zone} className="flex items-center gap-1 rounded-xl border border-zinc-300 bg-zinc-50 px-2 py-1">
+                      <input
+                        autoFocus
+                        value={editZoneValue}
+                        onChange={(e) => setEditZoneValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleRenameZone(zone, editZoneValue);
+                          if (e.key === "Escape") setEditingZone(null);
+                        }}
+                        className="w-24 bg-transparent text-sm font-semibold text-zinc-900 outline-none"
+                      />
+                      <button type="button" onClick={() => handleRenameZone(zone, editZoneValue)} className="text-emerald-600 hover:text-emerald-700">
+                        <Check className="size-3.5" />
+                      </button>
+                      <button type="button" onClick={() => setEditingZone(null)} className="text-zinc-400 hover:text-zinc-600">
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  );
+                }
+
+                const isStatic = zone === "Entrance";
+                return (
+                  <div key={zone} className="group flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveZone(zone)}
+                      className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                        activeZone === zone ? "bg-black text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                      }`}
+                    >
+                      {zone}
+                    </button>
+                    {!isStatic && (
+                      <div className="hidden group-hover:flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => { setEditingZone(zone); setEditZoneValue(zone); }}
+                          className="rounded p-1 text-zinc-400 hover:text-zinc-700"
+                          title="Rename zone"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteZone(zone)}
+                          className="rounded p-1 text-zinc-400 hover:text-red-500"
+                          title="Delete zone and its cameras"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-xl text-xs gap-1.5"
+                  onClick={() => setShowAddModal(true)}
+                >
+                  <Plus className="size-3.5" />
+                  Add Camera
+                </Button>
+              </div>
+            </nav>
+
+            {cameraError && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {cameraError}
+              </div>
+            )}
+
+            {/* Camera grid grouped by zone */}
+            <div className="mt-6 flex flex-col gap-8">
+              {Object.entries(grouped).map(([zone, { browser, vision }]) => (
+                <section key={zone}>
+                  <div className="mb-4 flex items-center gap-3">
+                    <h2 className="text-base font-semibold text-zinc-900">{zone}</h2>
+                    <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500">
+                      {browser.length + vision.length} camera{browser.length + vision.length !== 1 ? "s" : ""}
+                    </span>
+                    <div className="flex-1 border-t border-zinc-200" />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                    {browser.map((cam) => (
+                      <BrowserCameraTile
+                        key={cam.id}
+                        camera={cam}
+                        stream={stream}
+                        status={cam.status}
+                        peopleCount={cam.peopleCount}
+                        fps={cam.fps}
+                        latencyMs={cam.latencyMs}
+                        visionConnected={visionConnected}
+                        timestamp={timestamp}
+                      />
+                    ))}
+                    {vision.map((cam) => (
+                      <VisionCameraTile
+                        key={cam.id}
+                        camera={cam}
+                        onRemove={handleRemoveCamera}
+                        onCountChange={handleVisionCountChange}
+                        timestamp={timestamp}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            {filteredBrowser.length === 0 && filteredVision.length === 0 && (
+              <div className="mt-12 flex flex-col items-center gap-3 text-zinc-400">
+                <Camera className="size-12" />
+                <p className="text-sm font-medium">No cameras in this zone</p>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Camera grid grouped by zone */}
-        <div className="mt-6 space-y-8">
-          {Object.entries(grouped).map(([zone, { browser, vision }]) => (
-            <section key={zone}>
-              <div className="mb-4 flex items-center gap-3">
-                <h2 className="text-base font-semibold text-zinc-900">{zone}</h2>
-                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500">
-                  {browser.length + vision.length} camera{browser.length + vision.length !== 1 ? "s" : ""}
-                </span>
-                <div className="flex-1 border-t border-zinc-200" />
-              </div>
+        {activeView === "analytics" && (
+          <section className="mt-4 flex flex-col gap-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Estimated visitors (24h)</p>
+                <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
+                  <Users className="size-5 text-zinc-500" />
+                  {estimatedVisitorsToday}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Peak hour</p>
+                <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
+                  <Clock3 className="size-5 text-zinc-500" />
+                  {peakHour}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Live occupancy</p>
+                <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
+                  <BarChart3 className="size-5 text-zinc-500" />
+                  {analyticsLiveOccupancy}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Busiest zone now</p>
+                <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-zinc-900">
+                  <TrendingUp className="size-5 text-zinc-500" />
+                  {busiestZone}
+                </p>
+              </article>
+            </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {browser.map((cam) => (
-                  <BrowserCameraTile
-                    key={cam.id}
-                    camera={cam}
-                    stream={stream}
-                    status={cam.status}
-                    peopleCount={cam.peopleCount}
-                    fps={cam.fps}
-                    latencyMs={cam.latencyMs}
-                    visionConnected={visionConnected}
-                    timestamp={timestamp}
-                  />
-                ))}
-                {vision.map((cam) => (
-                  <VisionCameraTile
-                    key={cam.id}
-                    camera={cam}
-                    onRemove={handleRemoveCamera}
-                    timestamp={timestamp}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+            <div className="grid gap-4 xl:grid-cols-3">
+              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm xl:col-span-2">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-zinc-900">Hourly occupancy trend</h2>
+                  <span className="text-xs text-zinc-500">Rolling 24h line graph</span>
+                </div>
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                  <svg viewBox={`0 0 ${trendChart.width} ${trendChart.height}`} className="h-56 w-full">
+                    <line x1={trendChart.left} y1={trendChart.bottom} x2={trendChart.right} y2={trendChart.bottom} className="stroke-zinc-200" />
+                    <line x1={trendChart.left} y1={trendChart.top} x2={trendChart.left} y2={trendChart.bottom} className="stroke-zinc-200" />
+                    <path d={trendChart.areaPath} fill="rgba(24, 24, 27, 0.12)" />
+                    <path d={trendChart.linePath} fill="none" stroke="#18181B" strokeWidth="2.5" />
+                    {trendChart.points.filter((_, i) => i % 4 === 0).map((point) => (
+                      <text key={point.hour} x={point.x} y={trendChart.bottom + 14} textAnchor="middle" className="fill-zinc-500 text-[9px]">
+                        {point.label.slice(0, 2)}
+                      </text>
+                    ))}
+                  </svg>
+                </div>
+              </article>
 
-        {filteredBrowser.length === 0 && filteredVision.length === 0 && (
-          <div className="mt-12 flex flex-col items-center gap-3 text-zinc-400">
-            <Camera className="size-12" />
-            <p className="text-sm font-medium">No cameras in this zone</p>
-          </div>
+              <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-zinc-900">Zone share</h2>
+                  <span className="text-xs text-zinc-500">{USE_FAKE_ANALYTICS ? "Demo split" : "Live split"}</span>
+                </div>
+                <div className="flex items-center justify-center rounded-xl border border-zinc-100 bg-zinc-50 p-4">
+                  <div className="relative size-36">
+                    <svg viewBox="0 0 120 120" className="size-36 -rotate-90">
+                      <circle cx="60" cy="60" r="52" fill="none" stroke="#E4E4E7" strokeWidth="12" />
+                      {donutSegments.map((segment) => (
+                        <circle
+                          key={segment.zone}
+                          cx="60"
+                          cy="60"
+                          r="52"
+                          fill="none"
+                          stroke={segment.stroke}
+                          strokeWidth="12"
+                          strokeDasharray={segment.dasharray}
+                          strokeDashoffset={segment.dashoffset}
+                          strokeLinecap="butt"
+                        />
+                      ))}
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center text-center">
+                      <div>
+                        <p className="text-xl font-semibold text-zinc-900">{totalZonePeople}</p>
+                        <p className="text-[11px] text-zinc-500">people now</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-col gap-2">
+                  {donutSegments.map((segment) => (
+                    <div key={segment.zone} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="size-2.5 rounded-full" style={{ backgroundColor: segment.stroke }} />
+                        <span className="font-medium text-zinc-700">{segment.zone}</span>
+                      </div>
+                      <span className="text-zinc-500">{segment.percent}%</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </div>
+
+            <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-zinc-900">Current load by zone</h2>
+                <span className="text-xs text-zinc-500">Horizontal bar graph</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {zoneDistribution.length === 0 && (
+                  <p className="text-sm text-zinc-500">No occupancy data yet.</p>
+                )}
+                {zoneDistribution.map((zone) => {
+                  const width = totalZonePeople > 0 ? Math.max(4, Math.round((zone.count / totalZonePeople) * 100)) : 4;
+                  return (
+                    <div key={zone.zone} className="grid grid-cols-[120px_1fr_52px] items-center gap-3">
+                      <span className="text-xs font-medium text-zinc-600 truncate">{zone.zone}</span>
+                      <div className="h-2.5 rounded bg-zinc-100">
+                        <div className="h-2.5 rounded bg-zinc-800" style={{ width: `${width}%` }} />
+                      </div>
+                      <span className="text-right text-xs font-semibold text-zinc-700">{zone.count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-zinc-900">Queue time by zone</h2>
+                <span className="text-xs text-zinc-500">Estimated wait in minutes</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {queueByZone.length === 0 && (
+                  <p className="text-sm text-zinc-500">No queue data yet.</p>
+                )}
+                {queueByZone.map((zone) => {
+                  const width = maxQueueMinutes > 0 ? Math.max(6, Math.round((zone.queueMinutes / maxQueueMinutes) * 100)) : 6;
+                  return (
+                    <div key={zone.zone} className="grid grid-cols-[120px_1fr_86px_56px] items-center gap-3">
+                      <span className="text-xs font-medium text-zinc-600 truncate">{zone.zone}</span>
+                      <div className="h-2.5 rounded bg-zinc-100">
+                        <div className="h-2.5 rounded bg-zinc-700" style={{ width: `${width}%` }} />
+                      </div>
+                      <span className="text-right text-xs font-semibold text-zinc-800">{zone.queueMinutes} min</span>
+                      <span className="text-right text-[11px] font-medium text-zinc-500">{zone.queueLevel}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-[11px] text-zinc-500">
+                {USE_FAKE_ANALYTICS
+                  ? "Demo queue values for presentation mode."
+                  : "Computed from live occupancy density per zone and camera coverage. Replace with POS/host queue events for exact values."}
+              </p>
+            </article>
+
+          </section>
         )}
       </div>
 
