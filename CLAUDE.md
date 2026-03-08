@@ -103,12 +103,18 @@ The welcome page reads all AI replies aloud using the Web Speech API (`useTextTo
       - [app/admin/customer/all-full/page.tsx](app/admin/customer/all-full/page.tsx) — Legacy page (no longer navigated to; waitlist email collection now handled inline on welcome page)
     - [app/admin/entry/page.tsx](app/admin/entry/page.tsx) — Post-login landing page; animated typing sequence ("Welcome, Restaurant X." → "How would you like to proceed?") followed by two buttons: **Customer View** → `/admin/customer/welcome-page` and **Business View** → `/admin/business/dashboard`
     - [app/admin/business/](app/admin/business/) — Staff-facing business management:
-      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Camera monitoring dashboard. Two camera types coexist:
+      - [app/admin/business/dashboard/page.tsx](app/admin/business/dashboard/page.tsx) — Staff dashboard with two top-level views: **Cameras** and **Analytics**.
+        - **Cameras view**: camera monitoring dashboard with two camera types:
         - **Browser camera (CAM-01)**: auto-starts via `getUserMedia` on page load; polls `POST /detect` every 900ms for people count; clicking the tile navigates to the zone editor.
         - **Vision server cameras**: added manually via "Add Camera" button → modal (name, zone, free-text, source index; `0` = iPhone via Continuity Camera). Each camera POSTs to `POST /cameras` on the vision server, then streams MJPEG from `GET /stream/{camera_id}`. People count polled from `GET /cameras/{camera_id}` every 1.5s. Remove button (×) calls `DELETE /cameras/{camera_id}`.
         - **Zone tabs**: dynamically derived from all camera zones. Non-"Entrance" zones show pencil (inline rename) and trash (delete zone + its cameras) icons on hover. Rename updates all cameras in that zone; delete stops them on the server.
         - **Persistence**: vision server camera configs (`name`, `zone`, `source`) saved to `localStorage` key `vision-cameras`; re-registered with the vision server on page mount.
         - **Vision health**: pings `GET /health` every 5s for the "Vision Connected / Offline" badge.
+        - **Analytics view**: includes metric cards + multiple graphs:
+          - Cards: estimated visitors (24h), peak hour, live occupancy, busiest zone.
+          - Graphs: hourly occupancy trend (line/area), zone share (donut), current load by zone (bars), queue time by zone (bars + level).
+          - Rolling sample cache for analytics uses `localStorage` key `traffic-samples-v1` when live data mode is used.
+          - Demo mode currently enabled via `USE_FAKE_ANALYTICS = true` in `app/admin/business/dashboard/page.tsx`, which drives analytics from mock datasets for presentation.
       - [app/admin/business/camera/[cameraId]/page.tsx](app/admin/business/camera/[cameraId]/page.tsx) — Full-screen camera viewer + table zone editor. Left: live video feed with canvas overlay for drawing zones (click & drag). Right sidebar: zone list with editable name and seat capacity per zone, confirm/cancel flow for new zones. Zones persisted to `localStorage` keyed by `camera-zones-${cameraId}`. "Save to Database" upserts name + capacity to Supabase `tables` via `POST /api/tables`.
 - **[app/api/](app/api/)** — Next.js API routes:
   - [app/api/tables/route.ts](app/api/tables/route.ts) — `POST /api/tables`; accepts an array of `{ name, capacity, status }` rows and upserts them into the `tables` table using the server-side secret key (bypasses RLS). Used by the camera zone editor.
