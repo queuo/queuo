@@ -141,10 +141,14 @@ export default function LoginPage() {
                 Computer vision that seats your guests automatically.
               </p>
 
-              <div className="mt-10 flex h-56 items-center justify-center rounded-2xl border border-white/70 bg-white/60">
-                <p className="text-sm font-medium text-zinc-400">
-                  Dashboard preview
-                </p>
+              <div className="mt-10 overflow-hidden rounded-2xl border border-white/70 shadow-md">
+                <Image
+                  src="/dashboard-preview.png"
+                  alt="Dashboard preview"
+                  width={800}
+                  height={500}
+                  className="w-full"
+                />
               </div>
             </div>
           </GlassPanel>
