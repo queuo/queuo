@@ -21,7 +21,7 @@ export function tableReadyHtml({ email, partySize, tableName }: TableReadyProps)
           <!-- Header -->
           <tr>
             <td style="background-color:#000000;padding:28px 40px;">
-              <p style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#ffffff;">Queueo</p>
+              <p style="margin:0;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#ffffff;">Queuo</p>
               <p style="margin:4px 0 0;font-size:12px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#a1a1aa;">Smart Guest Reception</p>
             </td>
           </tr>
@@ -72,7 +72,7 @@ export function tableReadyHtml({ email, partySize, tableName }: TableReadyProps)
           <tr>
             <td style="background-color:#f4f4f5;padding:20px 40px;border-top:1px solid #e4e4e7;">
               <p style="margin:0;font-size:12px;color:#a1a1aa;line-height:1.5;">
-                This notification was sent to ${email} by Queueo on behalf of the restaurant.
+                This notification was sent to ${email} by Queuo on behalf of the restaurant.
               </p>
             </td>
           </tr>

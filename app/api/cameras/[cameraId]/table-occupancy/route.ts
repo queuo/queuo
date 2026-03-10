@@ -127,7 +127,7 @@ export async function POST(
         .eq("id", nextGuest.id);
 
       const { error: emailErr } = await resend.emails.send({
-        from: "Queueo <onboarding@resend.dev>",
+        from: "Queuo <onboarding@resend.dev>",
         to: nextGuest.email,
         subject: `Your table is ready — ${freedZone.name}`,
         html: tableReadyHtml({

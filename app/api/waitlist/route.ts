@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { error: emailErr } = await resend.emails.send({
-    from: "Queueo <onboarding@resend.dev>",
+    from: "Queuo <onboarding@resend.dev>",
     to: email,
     subject: `You're on the waitlist — ~${estimatedWait} min wait`,
     html: waitlistConfirmationHtml({ email, partySize, estimatedWait, position }),
