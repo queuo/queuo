@@ -20,7 +20,7 @@ Tests use `npx tsx --env-file=.env` — ensure a `.env` file exists with the req
 
 ## Branding
 
-The product brand name is currently **PlaceholderName** across the UI (`app/page.tsx`, `app/layout.tsx`). Update all instances when a final name is decided.
+The product brand name is **Queuo**.
 
 ## Documentation
 
@@ -156,7 +156,7 @@ The `useTextToSpeech` hook (in `lib/useTextToSpeech.ts`) is configured with a sp
   - [lib/supabase.ts](lib/supabase.ts) — Server-side Supabase client (`SUPABASE_URL` + `SUPABASE_SECRET_KEY`); bypasses RLS; use in API routes and server actions only
   - [lib/supabase-browser.ts](lib/supabase-browser.ts) — Browser-side Supabase client (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`); uses `@supabase/ssr` `createBrowserClient`; stores session in cookies for proxy access
   - [lib/resend.ts](lib/resend.ts) — Resend client (`RESEND_API_KEY`); sends waitlist-ready and reservation confirmation emails
-  - [lib/emails/waitlist-confirmation.ts](lib/emails/waitlist-confirmation.ts) — HTML email template: waitlist confirmation with estimated wait time and queue position; Queueo black/zinc brand design
+  - [lib/emails/waitlist-confirmation.ts](lib/emails/waitlist-confirmation.ts) — HTML email template: waitlist confirmation with estimated wait time and queue position; Queuo black/zinc brand design
   - [lib/emails/table-ready.ts](lib/emails/table-ready.ts) — HTML email template: "your table is ready" notification with table name; dark hero + brand design
   - [lib/utils.ts](lib/utils.ts) — `cn` helper for Tailwind class merging
   - [lib/useTextToSpeech.ts](lib/useTextToSpeech.ts) — Custom React hook for text-to-speech using Web Speech API; provides `speak()`, `stop()`, and `isSpeaking()` functions with configurable rate, pitch, volume, and language
