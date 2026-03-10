@@ -1,4 +1,4 @@
-# Architecture Diagram — Queueo Reception Bot
+# Architecture Diagram — Queuo Reception Bot
 
 ## Tech Stack at a Glance
 
