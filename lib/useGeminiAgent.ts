@@ -193,7 +193,7 @@ export function useGeminiAgent() {
     ): Promise<GeminiResponse> => {
       const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
       if (!apiKey) {
-        throw new Error('NEXT_PUBLIC_GEMINI_API_KEY is not set');
+        throw new Error('API_KEY_MISSING: NEXT_PUBLIC_GEMINI_API_KEY is not configured.');
       }
 
       // Build annotated user message with current state context
@@ -228,7 +228,23 @@ export function useGeminiAgent() {
       );
 
       if (!res.ok) {
-        throw new Error(`Gemini API error: ${res.status}`);
+        let errorBody = '';
+        try {
+          const errData = await res.json() as { error?: { message?: string } };
+          errorBody = errData.error?.message ?? JSON.stringify(errData);
+        } catch {
+          // ignore parse failure
+        }
+
+        if (!apiKey || res.status === 400) {
+          throw new Error(`API_KEY_INVALID:${res.status}: ${errorBody || 'Bad request — check your Gemini API key.'}`);
+        } else if (res.status === 401 || res.status === 403) {
+          throw new Error(`API_KEY_INVALID:${res.status}: ${errorBody || 'Unauthorized — the API key may be invalid or revoked.'}`);
+        } else if (res.status === 429) {
+          throw new Error(`RATE_LIMIT:429: ${errorBody || 'Too many requests — quota exceeded.'}`);
+        } else {
+          throw new Error(`API_ERROR:${res.status}: ${errorBody || res.statusText}`);
+        }
       }
 
       const data = await res.json();
