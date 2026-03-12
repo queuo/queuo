@@ -353,4 +353,4 @@ npm run dev
 - Protected routes: all `/admin/*` routes are guarded by `proxy.ts`; unauthenticated requests redirect to `/login`
 - Session storage: cookies (via `@supabase/ssr`) so the proxy can read auth state server-side
 - **Do not use `lib/supabase.ts` (secret key) for client-side auth** — only use `lib/supabase-browser.ts`
-- **RBAC**: `profiles` table stores `role` (`'user'`/`'admin'`); new signups default to `'user'` via trigger. Role enforcement not yet wired into routing — reserved for future use.
+- **RBAC**: `profiles` table stores `role` (`'user'`/`'admin'`); new signups default to `'user'` via trigger. RLS policies block direct database access (via Supabase dashboard, REST API, or anon key) for non-admin users. All app routes and API routes are intentionally open to any authenticated user — the RLS layer is purely a guard against external DB manipulation, not in-app access control.
