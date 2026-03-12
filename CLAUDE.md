@@ -28,10 +28,8 @@ The product brand name is **Queuo**.
 - [docs/architecture-diagram.md](docs/architecture-diagram.md) — Mermaid whiteboard diagram of the high-level system architecture. Renders in VS Code (Markdown Preview Mermaid Support extension), GitHub, or mermaid.live. References `architecture.md` for detail.
 - [docs/voice-agentic-kiosk.md](docs/voice-agentic-kiosk.md) — Design doc for the voice-agentic kiosk flow: STT → Gemini NLU → TTS state machine, component responsibilities, UX states, conversation bubble layout, fallback behaviour.
 - [docs/Customer_Kiosk_Flow.md](docs/Customer_Kiosk_Flow.md) — Original kiosk screen flow wireframes and route map.
-- [docs/sql/setup.sql](docs/sql/setup.sql) — **Run this once** to create all tables in a fresh Supabase project (safe to re-run; includes `tables`, `table_zones`, `waitlist`, `profiles`).
-- [docs/sql/table_zones.sql](docs/sql/table_zones.sql) — Migration: `table_zones` table.
-- [docs/sql/waitlist.sql](docs/sql/waitlist.sql) — Migration: `waitlist` table.
-- [docs/sql/profiles.sql](docs/sql/profiles.sql) — Migration: `profiles` table (RBAC); auto-created on signup via trigger; `role` defaults to `'user'`.
+- [docs/sql/setup.sql](docs/sql/setup.sql) — **The only file you need.** Run once in Supabase SQL Editor to create all tables and policies (safe to re-run). Includes `tables`, `table_zones`, `waitlist`, `profiles`, and all RLS policies.
+- [docs/sql/old/](docs/sql/old/) — Individual migration files kept for reference (`table_zones.sql`, `waitlist.sql`, `profiles.sql`, `rls_policies.sql`).
 
 ## Project: Reception Bot (Primary — Hack-Attack 2026)
 
@@ -185,26 +183,8 @@ The `useTextToSpeech` hook (in `lib/use-text-to-speech.ts`) is configured with a
 - `waitlist` — `id`, `guest_name`, `party_size`, `email`, `joined_at`, `notified_at`
 - `profiles` — one row per auth user: `id` (FK → `auth.users`), `email`, `role` (`'user'`/`'admin'`), `created_at`. Auto-created on signup via trigger. Promote to admin with: `update public.profiles set role = 'admin' where email = '...';`
 
-#### Fresh setup
-Paste [docs/sql/setup.sql](docs/sql/setup.sql) into the Supabase SQL Editor and run. Creates all tables in one shot, safe to re-run.
-
-#### Individual migrations
-- `tables` — inline in this file (see below)
-- `table_zones` — [docs/sql/table_zones.sql](docs/sql/table_zones.sql)
-- `waitlist` — [docs/sql/waitlist.sql](docs/sql/waitlist.sql)
-- `profiles` — [docs/sql/profiles.sql](docs/sql/profiles.sql)
-
-#### Migration: create `tables`
-Run in Supabase SQL Editor to create the `tables` table (required for the zone editor save):
-```sql
-create table public.tables (
-  id uuid primary key default gen_random_uuid(),
-  name text not null unique,
-  capacity integer not null default 4,
-  status text not null default 'free' check (status in ('free', 'occupied', 'reserved')),
-  seated_at timestamptz
-);
-```
+#### Setup
+Paste [docs/sql/setup.sql](docs/sql/setup.sql) into the Supabase SQL Editor and run. Creates all tables and RLS policies in one shot, safe to re-run.
 
 ---
 
