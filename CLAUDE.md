@@ -29,8 +29,8 @@ The product brand name is **Queuo**.
 - [docs/voice-agentic-kiosk.md](docs/voice-agentic-kiosk.md) — Design doc for the voice-agentic kiosk flow: STT → Gemini NLU → TTS state machine, component responsibilities, UX states, conversation bubble layout, fallback behaviour.
 - [docs/voice-agentic-kiosk-production.md](docs/voice-agentic-kiosk-production.md) — Production-mode kiosk flow diagram: shows how camera-driven decisions (party size, table availability) are replaced with random generation when `NODE_ENV === "production"`. Includes dev vs. production comparison table, ASCII flow, component behaviour pseudocode, and state machine reference.
 - [docs/Customer_Kiosk_Flow.md](docs/Customer_Kiosk_Flow.md) — Original kiosk screen flow wireframes and route map.
-- [docs/sql/setup.sql](docs/sql/setup.sql) — **The only file you need.** Run once in Supabase SQL Editor to create all tables and policies (safe to re-run). Includes `tables`, `table_zones`, `waitlist`, `profiles`, and all RLS policies.
-- [docs/sql/old/](docs/sql/old/) — Individual migration files kept for reference (`table_zones.sql`, `waitlist.sql`, `profiles.sql`, `rls_policies.sql`).
+- [sql/setup.sql](sql/setup.sql) — **The only file you need.** Run once in Supabase SQL Editor to create all tables and policies (safe to re-run). Includes `tables`, `table_zones`, `waitlist`, `profiles`, and all RLS policies.
+- [sql/old/](sql/old/) — Individual migration files kept for reference (`table_zones.sql`, `waitlist.sql`, `profiles.sql`, `rls_policies.sql`).
 
 ## Project: Reception Bot (Primary — Hack-Attack 2026)
 
@@ -56,6 +56,9 @@ A computer-vision-powered reception system for restaurants. An iPhone camera + Y
 - To simulate production locally: `npm run build && npm start`
 
 ### Recent Implemented Changes (March 2026)
+
+- **SQL directory moved to root**: `docs/sql/` has been moved to `sql/` at the project root. All references in `CLAUDE.md`, `GEMINI.md`, `README.md`, `docs/voice-agentic-kiosk.md`, and `vision/README.md` have been updated accordingly.
+
 
 - **Kiosk production mode (`KIOSK_VISION_ENABLED`)**: Welcome page now differentiates dev from production using `const KIOSK_VISION_ENABLED = process.env.NODE_ENV !== "production"`. In production, party-size detection is replaced with `Math.floor(Math.random() * 5) + 1` and table availability is replaced with `Math.random() > 0.4`. No camera permission is ever requested in production. Mirrors the `CAMERAS_ENABLED` pattern used in the business dashboard.
 
@@ -203,7 +206,7 @@ The `useTextToSpeech` hook (in `lib/use-text-to-speech.ts`) is configured with a
 - `profiles` — one row per auth user: `id` (FK → `auth.users`), `email`, `role` (`'user'`/`'admin'`), `created_at`. Auto-created on signup via trigger. Promote to admin with: `update public.profiles set role = 'admin' where email = '...';`
 
 #### Setup
-Paste [docs/sql/setup.sql](docs/sql/setup.sql) into the Supabase SQL Editor and run. Creates all tables and RLS policies in one shot, safe to re-run.
+Paste [sql/setup.sql](sql/setup.sql) into the Supabase SQL Editor and run. Creates all tables and RLS policies in one shot, safe to re-run.
 
 ---
 

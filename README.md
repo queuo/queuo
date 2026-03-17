@@ -101,8 +101,8 @@ pip install -r vision/requirements.txt
 ### 4. Run database migrations
 
 In the Supabase SQL Editor, run the migrations in order:
-- `docs/sql/table_zones.sql`
-- `docs/sql/waitlist.sql`
+- `sql/table_zones.sql`
+- `sql/waitlist.sql`
 
 ### 5. Start the dev server
 

@@ -181,7 +181,7 @@ The business dashboard now persists table zones/capacity in Supabase and uses
 1. Run SQL setup once:
 ```bash
 # Run in Supabase SQL Editor
-docs/sql/table_zones.sql
+sql/table_zones.sql
 ```
 
 2. API routes used by the dashboard:

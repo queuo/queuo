@@ -28,8 +28,8 @@ The product brand name is **Queuo**.
 - [docs/architecture-diagram.md](docs/architecture-diagram.md) — Mermaid whiteboard diagram of the high-level system architecture. Renders in VS Code (Markdown Preview Mermaid Support extension), GitHub, or mermaid.live. References `architecture.md` for detail.
 - [docs/voice-agentic-kiosk.md](docs/voice-agentic-kiosk.md) — Design doc for the voice-agentic kiosk flow: STT → Gemini NLU → TTS state machine, component responsibilities, UX states, conversation bubble layout, fallback behaviour.
 - [docs/Customer_Kiosk_Flow.md](docs/Customer_Kiosk_Flow.md) — Original kiosk screen flow wireframes and route map.
-- [docs/sql/table_zones.sql](docs/sql/table_zones.sql) — Migration: `table_zones` table.
-- [docs/sql/waitlist.sql](docs/sql/waitlist.sql) — Migration: `waitlist` table.
+- [sql/table_zones.sql](sql/table_zones.sql) — Migration: `table_zones` table.
+- [sql/waitlist.sql](sql/waitlist.sql) — Migration: `waitlist` table.
 
 ## Project: Reception Bot (Primary — Hack-Attack 2026)
 
@@ -186,14 +186,14 @@ create table public.tables (
 Run:
 ```sql
 -- Supabase SQL Editor
-docs/sql/table_zones.sql
+sql/table_zones.sql
 ```
 
 #### Migration: create `waitlist`
 Run:
 ```sql
 -- Supabase SQL Editor
-docs/sql/waitlist.sql
+sql/waitlist.sql
 ```
 
 ---

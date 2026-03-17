@@ -340,7 +340,7 @@ Both templates are plain HTML strings (no external email library) in `lib/emails
 
 ### SQL Migration
 
-Run `docs/sql/waitlist.sql` in the Supabase SQL Editor before using this flow.
+Run `sql/waitlist.sql` in the Supabase SQL Editor before using this flow.
 
 ---
 
