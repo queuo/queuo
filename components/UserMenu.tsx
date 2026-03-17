@@ -14,13 +14,13 @@ export function UserMenu({ user }: { user: User }) {
       <DropdownMenuTrigger asChild>
         <button
           aria-label="User menu"
-          className="group flex h-9 w-9 items-center justify-center rounded-full bg-transparent text-black transition-all duration-200 hover:bg-white/50 hover:shadow-sm focus:outline-none"
+          className="frosted-pill flex h-9 w-9 items-center justify-center rounded-full text-zinc-900 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus:outline-none"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
             fill="currentColor"
-            className="h-[22px] w-[22px] transition-transform duration-200 group-hover:scale-110"
+            className="h-[18px] w-[18px]"
           >
             <path
               fillRule="evenodd"
@@ -33,7 +33,7 @@ export function UserMenu({ user }: { user: User }) {
 
       <DropdownMenuContent
         align="end"
-        sideOffset={12}
+        sideOffset={8}
         className="w-60 overflow-hidden rounded-[1.25rem] border border-white/68 bg-white/45 p-0 font-sans shadow-[0_20px_80px_rgba(25,34,52,0.12)] backdrop-blur-[24px] duration-300 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-top-2"
       >
         {/* Ambient orbs — echoes the page background */}
