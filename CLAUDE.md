@@ -57,6 +57,8 @@ A computer-vision-powered reception system for restaurants. An iPhone camera + Y
 
 ### Recent Implemented Changes (March 2026)
 
+- **Resend domain verified (`ariqmuldi.com`)**: `ariqmuldi.com` is now a verified sending domain in Resend. Both email-sending API routes use a `FROM_EMAIL` constant that resolves to `"Queuo <queuo@ariqmuldi.com>"` in production and `"Queuo <onboarding@resend.dev>"` in development. This mirrors the `CAMERAS_ENABLED` / `KIOSK_VISION_ENABLED` env-based pattern used elsewhere in the codebase. Affected files: `app/api/waitlist/route.ts`, `app/api/cameras/[cameraId]/table-occupancy/route.ts`, `tests/resend.ts`.
+
 - **SQL directory moved to root**: `docs/sql/` has been moved to `sql/` at the project root. All references in `CLAUDE.md`, `GEMINI.md`, `README.md`, `docs/voice-agentic-kiosk.md`, and `vision/README.md` have been updated accordingly.
 
 
@@ -343,7 +345,7 @@ GEMINI_API_KEY=                 # Google AI Studio API key (server-side only, us
 
 **Getting credentials:**
 - **Supabase** — Create a project at [supabase.com](https://supabase.com). For `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL`: click **Connect** in the top header → **API Keys** → copy the Project URL. For `SUPABASE_SECRET_KEY`: **Settings → API Keys → service_role**. For `NEXT_PUBLIC_SUPABASE_ANON_KEY`: **Settings → API Keys → anon/public**.
-- **Resend** — Go to [resend.com](https://resend.com), navigate to API Keys → Create API Key. Copy the key as `RESEND_API_KEY`. Set `RESEND_TEST_EMAIL` to the email address associated with your Resend account (required for the sandbox `onboarding@resend.dev` sender to work).
+- **Resend** — Go to [resend.com](https://resend.com), navigate to API Keys → Create API Key. Copy the key as `RESEND_API_KEY`. Set `RESEND_TEST_EMAIL` to the email address associated with your Resend account (required for the sandbox `onboarding@resend.dev` sender to work in dev). In production, emails are sent from `queuo@ariqmuldi.com` (verified domain).
 
 ### 3. Verify connections
 ```bash

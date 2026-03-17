@@ -6,6 +6,10 @@ import { waitlistConfirmationHtml } from "@/lib/emails/waitlist-confirmation";
 // Average meal duration in minutes. Tables that have been seated longer than
 // this are assumed to be finishing up soon.
 const MEAL_DURATION_MINUTES = 25;
+const FROM_EMAIL =
+  process.env.NODE_ENV === "production"
+    ? "Queuo <queuo@ariqmuldi.com>"
+    : "Queuo <onboarding@resend.dev>";
 // Floor for any remaining-time estimate — never tell a guest < 5 min wait.
 const MIN_WAIT_MINUTES = 5;
 
@@ -115,7 +119,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { error: emailErr } = await resend.emails.send({
-    from: "Queuo <onboarding@resend.dev>",
+    from: FROM_EMAIL,
     to: email,
     subject: `You're on the waitlist — ~${estimatedWait} min wait`,
     html: waitlistConfirmationHtml({ email, partySize, estimatedWait, position }),

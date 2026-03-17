@@ -13,6 +13,7 @@ async function main() {
   }
 
   const { data, error } = await resend.emails.send({
+    // from: 'queuo@ariqmuldi.com', in production
     from: 'onboarding@resend.dev',
     to,
     subject: 'Resend connection test',

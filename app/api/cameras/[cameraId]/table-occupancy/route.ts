@@ -3,6 +3,11 @@ import { supabase } from "@/lib/supabase";
 import { resend } from "@/lib/resend";
 import { tableReadyHtml } from "@/lib/emails/table-ready";
 
+const FROM_EMAIL =
+  process.env.NODE_ENV === "production"
+    ? "Queuo <queuo@ariqmuldi.com>"
+    : "Queuo <onboarding@resend.dev>";
+
 interface OccupancyUpdate {
   id: string;
   occupied: boolean;
@@ -127,7 +132,7 @@ export async function POST(
         .eq("id", nextGuest.id);
 
       const { error: emailErr } = await resend.emails.send({
-        from: "Queuo <onboarding@resend.dev>",
+        from: FROM_EMAIL,
         to: nextGuest.email,
         subject: `Your table is ready — ${freedZone.name}`,
         html: tableReadyHtml({
