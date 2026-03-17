@@ -27,6 +27,7 @@ The product brand name is **Queuo**.
 - [docs/architecture.md](docs/architecture.md) — Full architecture reference: tech stack table, high-level system diagram (ASCII), kiosk voice flow, business dashboard data flow, waitlist algorithm, database schema, auth flow, and complete file map. Keep this updated when adding features.
 - [docs/architecture-diagram.md](docs/architecture-diagram.md) — Mermaid whiteboard diagram of the high-level system architecture. Renders in VS Code (Markdown Preview Mermaid Support extension), GitHub, or mermaid.live. References `architecture.md` for detail.
 - [docs/voice-agentic-kiosk.md](docs/voice-agentic-kiosk.md) — Design doc for the voice-agentic kiosk flow: STT → Gemini NLU → TTS state machine, component responsibilities, UX states, conversation bubble layout, fallback behaviour.
+- [docs/voice-agentic-kiosk-production.md](docs/voice-agentic-kiosk-production.md) — Production-mode kiosk flow diagram: shows how camera-driven decisions (party size, table availability) are replaced with random generation when `NODE_ENV === "production"`. Includes dev vs. production comparison table, ASCII flow, component behaviour pseudocode, and state machine reference.
 - [docs/Customer_Kiosk_Flow.md](docs/Customer_Kiosk_Flow.md) — Original kiosk screen flow wireframes and route map.
 - [docs/sql/setup.sql](docs/sql/setup.sql) — **The only file you need.** Run once in Supabase SQL Editor to create all tables and policies (safe to re-run). Includes `tables`, `table_zones`, `waitlist`, `profiles`, and all RLS policies.
 - [docs/sql/old/](docs/sql/old/) — Individual migration files kept for reference (`table_zones.sql`, `waitlist.sql`, `profiles.sql`, `rls_policies.sql`).
@@ -42,14 +43,21 @@ A computer-vision-powered reception system for restaurants. An iPhone camera + Y
 
 ### Production Deployment Behaviour
 
-- **`CAMERAS_ENABLED` flag** — `const CAMERAS_ENABLED = process.env.NODE_ENV !== "production"`. In production (`npm run build && npm start`, or any deployment platform), all camera and vision features are disabled at the source:
+- **`CAMERAS_ENABLED` flag** (business dashboard) — `const CAMERAS_ENABLED = process.env.NODE_ENV !== "production"`. In production, all camera and vision features are disabled at the source:
   - No `getUserMedia` calls, no vision bridge started, no detection polling
   - Camera tiles show "Camera not available" placeholder
   - Zone editor modal, "Configure Floor Tables", and "Manage Zones" buttons are hidden; clicking camera tiles does nothing
+- **`KIOSK_VISION_ENABLED` flag** (kiosk welcome page) — `const KIOSK_VISION_ENABLED = process.env.NODE_ENV !== "production"`. In production, camera-driven kiosk decisions are replaced with random generation:
+  - **Party size** — `Math.floor(Math.random() * 5) + 1` (1–5 guests); no `getUserMedia` or vision server polling
+  - **Table availability** — `Math.random() > 0.4` (60% chance a table is free) → random `Table 1–9`; no `GET /api/cameras/CAM-FLOOR/table-zones` fetch
+  - All voice logic (STT → Gemini → TTS), reservation code flow, and email/waitlist remain fully active in production
+  - See [docs/voice-agentic-kiosk-production.md](docs/voice-agentic-kiosk-production.md) for the full production flow diagram
 - **Hydration fix** — `timestamp` initialises to `""` and `trafficSamples` initialises to `[]` on both server and client; both are populated in `useEffect` after mount. This eliminates the React error #418 hydration mismatch caused by `toLocaleTimeString()` and `localStorage` reads during SSR.
 - To simulate production locally: `npm run build && npm start`
 
 ### Recent Implemented Changes (March 2026)
+
+- **Kiosk production mode (`KIOSK_VISION_ENABLED`)**: Welcome page now differentiates dev from production using `const KIOSK_VISION_ENABLED = process.env.NODE_ENV !== "production"`. In production, party-size detection is replaced with `Math.floor(Math.random() * 5) + 1` and table availability is replaced with `Math.random() > 0.4`. No camera permission is ever requested in production. Mirrors the `CAMERAS_ENABLED` pattern used in the business dashboard.
 
 - Admin table-zone setup is now integrated directly in the business dashboard modal (draw, edit, delete, save).
 - Table zone records are persisted in Supabase table `table_zones` with normalized bounds and per-table capacity.
